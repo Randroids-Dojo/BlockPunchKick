@@ -19,8 +19,17 @@ const CONFIG = {
   healthMax: 100,
   roundSeconds: 60,
   roundWinsNeeded: 2,
-  moveSpeed: 260,
-  pushDistance: 60,
+  physics: {
+    moveAccel: 2500,
+    airBrake: 20,
+    maxSpeedX: 280,
+    maxSpeedY: 210,
+    pushSeparation: 58,
+    wallBounceDamping: 0.18,
+    impulseDamping: 18,
+    axisResponsivenessX: 1,
+    axisResponsivenessY: 0.72,
+  },
   punch: { damage: 8, range: 100, yRange: 70, hitStun: 16, blockStun: 12, pushOnHit: 28, pushOnBlock: 18 },
   kick: { damage: 12, range: 140, yRange: 80, hitStun: 22, blockStun: 16, pushOnHit: 38, pushOnBlock: 30 },
   chipDamage: 1,
@@ -38,7 +47,10 @@ class Fighter {
     this.id = id; this.color = color; this.x = x; this.y = 560;
     this.facing = 1; this.state = State.Idle; this.stateFrame = 0;
     this.health = CONFIG.healthMax; this.roundWins = 0; this.blockHeld = false;
-    this.buffer = []; this.recoil = 0;
+    this.buffer = [];
+    this.axisX = 0; this.axisY = 0;
+    this.vx = 0; this.vy = 0;
+    this.impulseX = 0; this.impulseY = 0;
   }
   actionable() { return [State.Idle, State.Move, State.Block].includes(this.state); }
   inAttack() { return [State.PunchStartup, State.PunchActive, State.PunchRecovery, State.KickStartup, State.KickActive, State.KickRecovery].includes(this.state); }
@@ -133,13 +145,9 @@ function simInputForPlayer() {
   world.input.punch = false; world.input.kick = false;
 
   if (p.actionable()) {
-    const axisX = (world.input.right ? 1 : 0) - (world.input.left ? 1 : 0);
-    const axisY = (world.input.down ? 1 : 0) - (world.input.up ? 1 : 0);
-    if (axisX || axisY) {
-      p.x += axisX * CONFIG.moveSpeed * DT;
-      p.y += axisY * CONFIG.moveSpeed * DT;
-      p.x = Math.max(CONFIG.arena.minX, Math.min(CONFIG.arena.maxX, p.x));
-      p.y = Math.max(CONFIG.arena.minY, Math.min(CONFIG.arena.maxY, p.y));
+    p.axisX = (world.input.right ? 1 : 0) - (world.input.left ? 1 : 0);
+    p.axisY = (world.input.down ? 1 : 0) - (world.input.up ? 1 : 0);
+    if (p.axisX || p.axisY) {
       if (p.state !== State.Block) setState(p, State.Move);
     } else if (p.state === State.Move) setState(p, State.Idle);
 
@@ -167,12 +175,12 @@ function simAI() {
   }
 
   if (distance > 140) {
-    ai.x += Math.sign(dx) * CONFIG.moveSpeed * 0.75 * DT;
-    ai.y += Math.sign(dy) * CONFIG.moveSpeed * 0.4 * DT;
-    ai.x = Math.max(CONFIG.arena.minX, Math.min(CONFIG.arena.maxX, ai.x));
-    ai.y = Math.max(CONFIG.arena.minY, Math.min(CONFIG.arena.maxY, ai.y));
+    ai.axisX = Math.sign(dx) * 0.75;
+    ai.axisY = Math.sign(dy) * 0.45;
     setState(ai, State.Move);
   } else {
+    ai.axisX = 0;
+    ai.axisY = 0;
     if (ai.state === State.Move) setState(ai, State.Idle);
     if (aiCooldown <= 0) {
       enqueueAction(ai, Math.random() < 0.55 ? 'punch' : 'kick');
@@ -223,14 +231,14 @@ function tryHit(attacker, defender, move, isKick) {
   if (blocked) {
     defender.health = Math.max(0, defender.health - CONFIG.chipDamage);
     setState(defender, State.BlockStun); defender.stunFrames = move.blockStun;
-    attacker.x -= attacker.facing * move.pushOnBlock;
-    defender.x += attacker.facing * move.pushOnBlock;
+    attacker.impulseX -= attacker.facing * move.pushOnBlock * 22;
+    defender.impulseX += attacker.facing * move.pushOnBlock * 14;
     world.hitStopFrames = FRAMES.hitStopBlocked;
   } else {
     defender.health = Math.max(0, defender.health - move.damage);
     setState(defender, State.HitStun); defender.stunFrames = move.hitStun;
-    defender.x += attacker.facing * move.pushOnHit;
-    attacker.x -= attacker.facing * (move.pushOnHit * 0.4);
+    defender.impulseX += attacker.facing * move.pushOnHit * 22;
+    attacker.impulseX -= attacker.facing * move.pushOnHit * 9;
     world.hitStopFrames = isKick ? FRAMES.hitStopKick : FRAMES.hitStopPunch;
   }
 
@@ -253,15 +261,51 @@ function resolveCombat() {
   if (c.state === State.PunchActive) tryHit(c, p, CONFIG.punch, false);
   if (c.state === State.KickActive) tryHit(c, p, CONFIG.kick, true);
 
-  if (Math.abs(p.x - c.x) < CONFIG.pushDistance) {
-    const overlap = CONFIG.pushDistance - Math.abs(p.x - c.x);
+  if (Math.abs(p.x - c.x) < CONFIG.physics.pushSeparation) {
+    const overlap = CONFIG.physics.pushSeparation - Math.abs(p.x - c.x);
     const dir = p.x < c.x ? -1 : 1;
     p.x += dir * overlap * 0.5;
     c.x -= dir * overlap * 0.5;
+    p.vx += dir * overlap * 32;
+    c.vx -= dir * overlap * 32;
     clampArena(p); clampArena(c);
   }
 
   if (p.health <= 0 || c.health <= 0 || world.timer <= 0) endRound();
+}
+
+function integrateFighterPhysics(f) {
+  const physics = CONFIG.physics;
+  const movable = f.actionable() || f.state === State.BlockStun || f.state === State.HitStun;
+  const axisX = movable ? f.axisX : 0;
+  const axisY = movable ? f.axisY : 0;
+  const targetVX = axisX * physics.maxSpeedX * physics.axisResponsivenessX;
+  const targetVY = axisY * physics.maxSpeedY * physics.axisResponsivenessY;
+
+  f.vx += (targetVX - f.vx) * Math.min(1, physics.moveAccel * DT / Math.max(1, physics.maxSpeedX));
+  f.vy += (targetVY - f.vy) * Math.min(1, physics.moveAccel * DT / Math.max(1, physics.maxSpeedY));
+
+  if (!axisX) f.vx *= Math.max(0, 1 - physics.airBrake * DT);
+  if (!axisY) f.vy *= Math.max(0, 1 - physics.airBrake * DT);
+
+  f.impulseX *= Math.max(0, 1 - physics.impulseDamping * DT);
+  f.impulseY *= Math.max(0, 1 - physics.impulseDamping * DT);
+
+  f.x += (f.vx + f.impulseX) * DT;
+  f.y += (f.vy + f.impulseY) * DT;
+
+  const preClampX = f.x;
+  const preClampY = f.y;
+  clampArena(f);
+
+  if (preClampX !== f.x) {
+    f.vx *= -physics.wallBounceDamping;
+    f.impulseX *= -physics.wallBounceDamping;
+  }
+  if (preClampY !== f.y) {
+    f.vy *= -physics.wallBounceDamping;
+    f.impulseY *= -physics.wallBounceDamping;
+  }
 }
 
 let roundLockFrames = 0;
@@ -372,6 +416,8 @@ function step() {
 
   simInputForPlayer();
   simAI();
+  integrateFighterPhysics(world.player);
+  integrateFighterPhysics(world.cpu);
   processStates(world.player);
   processStates(world.cpu);
   resolveCombat();
