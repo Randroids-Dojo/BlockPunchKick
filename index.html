@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Block Punch Kick Prototype</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="hud">
+        <section class="hud-side" aria-label="Player health">
+          <div class="health-label">Player</div>
+          <div class="health-track"><div id="p1-health" class="health-fill player"></div></div>
+          <div id="p1-rounds" class="round-dots"></div>
+        </section>
+
+        <section class="hud-center" aria-live="polite">
+          <div id="round-text" class="round-text">Round 1</div>
+          <div id="timer" class="timer">60</div>
+          <div id="announcement" class="announcement"></div>
+        </section>
+
+        <section class="hud-side" aria-label="CPU health">
+          <div class="health-label">CPU</div>
+          <div class="health-track"><div id="p2-health" class="health-fill cpu"></div></div>
+          <div id="p2-rounds" class="round-dots"></div>
+        </section>
+      </header>
+
+      <canvas id="arena" width="1280" height="720" aria-label="Block Punch Kick arena"></canvas>
+
+      <section class="mobile-controls" aria-label="Mobile controls">
+        <div id="dpad-zone" class="dpad-zone">
+          <div id="dpad" class="dpad hidden">
+            <div class="dpad-knob"></div>
+          </div>
+        </div>
+        <div class="action-buttons">
+          <button id="block-btn" class="btn block">Block</button>
+          <button id="punch-btn" class="btn punch">Punch</button>
+          <button id="kick-btn" class="btn kick">Kick</button>
+        </div>
+      </section>
+
+      <details class="help">
+        <summary>Controls</summary>
+        <p>Move: A/D or ←/→ (W/S or ↑/↓ for vertical lane). Block: hold J or Shift. Punch: K. Kick: L.</p>
+      </details>
+    </main>
+
+    <script type="module" src="src/game.js"></script>
+  </body>
+</html>

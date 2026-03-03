@@ -1,0 +1,396 @@
+const TICK_RATE = 120;
+const DT = 1 / TICK_RATE;
+const FRAMES = {
+  blockStartup: 1,
+  blockRecovery: 4,
+  punchStartup: 5,
+  punchActive: 3,
+  punchRecovery: 10,
+  kickStartup: 8,
+  kickActive: 4,
+  kickRecovery: 14,
+  hitStopPunch: 5,
+  hitStopKick: 7,
+  hitStopBlocked: 3,
+};
+
+const CONFIG = {
+  arena: { minX: 100, maxX: 1180, minY: 430, maxY: 600 },
+  healthMax: 100,
+  roundSeconds: 60,
+  roundWinsNeeded: 2,
+  moveSpeed: 260,
+  pushDistance: 60,
+  punch: { damage: 8, range: 100, yRange: 70, hitStun: 16, blockStun: 12, pushOnHit: 28, pushOnBlock: 18 },
+  kick: { damage: 12, range: 140, yRange: 80, hitStun: 22, blockStun: 16, pushOnHit: 38, pushOnBlock: 30 },
+  chipDamage: 1,
+};
+
+const State = {
+  Idle: 'Idle', Move: 'Move', Block: 'Block', BlockRecovery: 'Block_Recovery',
+  PunchStartup: 'Punch_Startup', PunchActive: 'Punch_Active', PunchRecovery: 'Punch_Recovery',
+  KickStartup: 'Kick_Startup', KickActive: 'Kick_Active', KickRecovery: 'Kick_Recovery',
+  HitStun: 'Hit_Stun', BlockStun: 'Block_Stun', KO: 'KO',
+};
+
+class Fighter {
+  constructor(id, color, x) {
+    this.id = id; this.color = color; this.x = x; this.y = 560;
+    this.facing = 1; this.state = State.Idle; this.stateFrame = 0;
+    this.health = CONFIG.healthMax; this.roundWins = 0; this.blockHeld = false;
+    this.buffer = []; this.recoil = 0;
+  }
+  actionable() { return [State.Idle, State.Move, State.Block].includes(this.state); }
+  inAttack() { return [State.PunchStartup, State.PunchActive, State.PunchRecovery, State.KickStartup, State.KickActive, State.KickRecovery].includes(this.state); }
+}
+
+const world = {
+  frame: 0, round: 1, timer: CONFIG.roundSeconds,
+  player: new Fighter('player', '#2d9bff', 350),
+  cpu: new Fighter('cpu', '#ff5353', 930),
+  input: { left: false, right: false, up: false, down: false, block: false, punch: false, kick: false },
+  hitStopFrames: 0, paused: false,
+};
+
+const canvas = document.getElementById('arena');
+const ctx = canvas.getContext('2d');
+const ui = {
+  p1Health: document.getElementById('p1-health'), p2Health: document.getElementById('p2-health'),
+  p1Rounds: document.getElementById('p1-rounds'), p2Rounds: document.getElementById('p2-rounds'),
+  timer: document.getElementById('timer'), roundText: document.getElementById('round-text'), announcement: document.getElementById('announcement'),
+};
+
+const keyMap = {
+  ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right', ArrowUp: 'up', w: 'up', ArrowDown: 'down', s: 'down',
+  Shift: 'block', j: 'block', k: 'punch', l: 'kick',
+};
+window.addEventListener('keydown', (e) => setInput(e.key, true));
+window.addEventListener('keyup', (e) => setInput(e.key, false));
+function setInput(key, val) {
+  const mapped = keyMap[key] ?? keyMap[key.toLowerCase()];
+  if (!mapped) return;
+  if (mapped === 'punch' || mapped === 'kick') {
+    if (val) world.input[mapped] = true;
+  } else world.input[mapped] = val;
+}
+
+function setupMobileControls() {
+  const bindHold = (id, field) => {
+    const el = document.getElementById(id);
+    el.addEventListener('pointerdown', () => world.input[field] = true);
+    el.addEventListener('pointerup', () => world.input[field] = false);
+    el.addEventListener('pointercancel', () => world.input[field] = false);
+    el.addEventListener('pointerleave', () => world.input[field] = false);
+  };
+  bindHold('block-btn', 'block');
+  ['punch', 'kick'].forEach((name) => {
+    const el = document.getElementById(`${name}-btn`);
+    el.addEventListener('pointerdown', () => world.input[name] = true);
+  });
+
+  const zone = document.getElementById('dpad-zone');
+  const pad = document.getElementById('dpad');
+  let origin = null;
+  const resetMove = () => { world.input.left = world.input.right = world.input.up = world.input.down = false; };
+  zone.addEventListener('pointerdown', (e) => {
+    origin = { x: e.offsetX, y: e.offsetY };
+    pad.classList.remove('hidden');
+    pad.style.left = `${origin.x}px`; pad.style.top = `${origin.y}px`;
+    zone.setPointerCapture(e.pointerId);
+  });
+  zone.addEventListener('pointermove', (e) => {
+    if (!origin) return;
+    const dx = e.offsetX - origin.x, dy = e.offsetY - origin.y;
+    resetMove();
+    if (dx < -15) world.input.left = true; if (dx > 15) world.input.right = true;
+    if (dy < -15) world.input.up = true; if (dy > 15) world.input.down = true;
+  });
+  zone.addEventListener('pointerup', () => { origin = null; resetMove(); pad.classList.add('hidden'); });
+  zone.addEventListener('pointercancel', () => { origin = null; resetMove(); pad.classList.add('hidden'); });
+}
+setupMobileControls();
+
+function enqueueAction(fighter, action) {
+  if (fighter.buffer.length > 2) return;
+  fighter.buffer.push({ action, expires: world.frame + 5 });
+}
+
+function consumeBufferedAction(fighter) {
+  fighter.buffer = fighter.buffer.filter((item) => item.expires >= world.frame);
+  if (!fighter.actionable() || fighter.buffer.length === 0) return;
+  const next = fighter.buffer.shift().action;
+  if (next === 'punch') setState(fighter, State.PunchStartup);
+  if (next === 'kick') setState(fighter, State.KickStartup);
+}
+
+function setState(f, next) { f.state = next; f.stateFrame = 0; }
+
+function simInputForPlayer() {
+  const p = world.player;
+  p.blockHeld = world.input.block;
+  if (world.input.punch) enqueueAction(p, 'punch');
+  if (world.input.kick) enqueueAction(p, 'kick');
+  world.input.punch = false; world.input.kick = false;
+
+  if (p.actionable()) {
+    const axisX = (world.input.right ? 1 : 0) - (world.input.left ? 1 : 0);
+    const axisY = (world.input.down ? 1 : 0) - (world.input.up ? 1 : 0);
+    if (axisX || axisY) {
+      p.x += axisX * CONFIG.moveSpeed * DT;
+      p.y += axisY * CONFIG.moveSpeed * DT;
+      p.x = Math.max(CONFIG.arena.minX, Math.min(CONFIG.arena.maxX, p.x));
+      p.y = Math.max(CONFIG.arena.minY, Math.min(CONFIG.arena.maxY, p.y));
+      if (p.state !== State.Block) setState(p, State.Move);
+    } else if (p.state === State.Move) setState(p, State.Idle);
+
+    if (p.blockHeld && p.state !== State.Block) setState(p, State.Block);
+    if (!p.blockHeld && p.state === State.Block) setState(p, State.BlockRecovery);
+  }
+}
+
+let aiCooldown = 0;
+function simAI() {
+  const ai = world.cpu, player = world.player;
+  aiCooldown--;
+  const dx = player.x - ai.x;
+  const dy = player.y - ai.y;
+  const distance = Math.abs(dx);
+  ai.facing = dx > 0 ? 1 : -1;
+  if (!ai.actionable()) return;
+
+  ai.blockHeld = false;
+  if ((player.state === State.PunchStartup || player.state === State.KickStartup) && distance < 160 && aiCooldown <= 0) {
+    ai.blockHeld = Math.random() < 0.75;
+    if (ai.blockHeld) setState(ai, State.Block);
+    aiCooldown = 8;
+    return;
+  }
+
+  if (distance > 140) {
+    ai.x += Math.sign(dx) * CONFIG.moveSpeed * 0.75 * DT;
+    ai.y += Math.sign(dy) * CONFIG.moveSpeed * 0.4 * DT;
+    ai.x = Math.max(CONFIG.arena.minX, Math.min(CONFIG.arena.maxX, ai.x));
+    ai.y = Math.max(CONFIG.arena.minY, Math.min(CONFIG.arena.maxY, ai.y));
+    setState(ai, State.Move);
+  } else {
+    if (ai.state === State.Move) setState(ai, State.Idle);
+    if (aiCooldown <= 0) {
+      enqueueAction(ai, Math.random() < 0.55 ? 'punch' : 'kick');
+      aiCooldown = 18 + Math.floor(Math.random() * 14);
+    }
+  }
+}
+
+function processStates(f) {
+  f.stateFrame++;
+  switch (f.state) {
+    case State.BlockRecovery:
+      if (f.stateFrame >= FRAMES.blockRecovery) setState(f, State.Idle);
+      break;
+    case State.PunchStartup:
+      if (f.stateFrame >= FRAMES.punchStartup) setState(f, State.PunchActive);
+      break;
+    case State.PunchActive:
+      if (f.stateFrame >= FRAMES.punchActive) setState(f, State.PunchRecovery);
+      break;
+    case State.PunchRecovery:
+      if (f.stateFrame >= FRAMES.punchRecovery) setState(f, State.Idle);
+      break;
+    case State.KickStartup:
+      if (f.stateFrame >= FRAMES.kickStartup) setState(f, State.KickActive);
+      break;
+    case State.KickActive:
+      if (f.stateFrame >= FRAMES.kickActive) setState(f, State.KickRecovery);
+      break;
+    case State.KickRecovery:
+      if (f.stateFrame >= FRAMES.kickRecovery) setState(f, State.Idle);
+      break;
+    case State.HitStun:
+    case State.BlockStun:
+      if (f.stateFrame >= f.stunFrames) setState(f, State.Idle);
+      break;
+  }
+  consumeBufferedAction(f);
+}
+
+function tryHit(attacker, defender, move, isKick) {
+  if (attacker.hitConfirmedThisState) return;
+  const dx = (defender.x - attacker.x) * attacker.facing;
+  const dy = Math.abs(defender.y - attacker.y);
+  if (dx <= 0 || dx > move.range || dy > move.yRange) return;
+
+  const blocked = defender.state === State.Block;
+  if (blocked) {
+    defender.health = Math.max(0, defender.health - CONFIG.chipDamage);
+    setState(defender, State.BlockStun); defender.stunFrames = move.blockStun;
+    attacker.x -= attacker.facing * move.pushOnBlock;
+    defender.x += attacker.facing * move.pushOnBlock;
+    world.hitStopFrames = FRAMES.hitStopBlocked;
+  } else {
+    defender.health = Math.max(0, defender.health - move.damage);
+    setState(defender, State.HitStun); defender.stunFrames = move.hitStun;
+    defender.x += attacker.facing * move.pushOnHit;
+    attacker.x -= attacker.facing * (move.pushOnHit * 0.4);
+    world.hitStopFrames = isKick ? FRAMES.hitStopKick : FRAMES.hitStopPunch;
+  }
+
+  attacker.hitConfirmedThisState = true;
+  clampArena(attacker); clampArena(defender);
+}
+
+function clampArena(f) {
+  f.x = Math.max(CONFIG.arena.minX, Math.min(CONFIG.arena.maxX, f.x));
+  f.y = Math.max(CONFIG.arena.minY, Math.min(CONFIG.arena.maxY, f.y));
+}
+
+function resolveCombat() {
+  const p = world.player, c = world.cpu;
+  p.facing = c.x > p.x ? 1 : -1;
+  c.facing = p.x > c.x ? 1 : -1;
+
+  if (p.state === State.PunchActive) tryHit(p, c, CONFIG.punch, false);
+  if (p.state === State.KickActive) tryHit(p, c, CONFIG.kick, true);
+  if (c.state === State.PunchActive) tryHit(c, p, CONFIG.punch, false);
+  if (c.state === State.KickActive) tryHit(c, p, CONFIG.kick, true);
+
+  if (Math.abs(p.x - c.x) < CONFIG.pushDistance) {
+    const overlap = CONFIG.pushDistance - Math.abs(p.x - c.x);
+    const dir = p.x < c.x ? -1 : 1;
+    p.x += dir * overlap * 0.5;
+    c.x -= dir * overlap * 0.5;
+    clampArena(p); clampArena(c);
+  }
+
+  if (p.health <= 0 || c.health <= 0 || world.timer <= 0) endRound();
+}
+
+let roundLockFrames = 0;
+function endRound() {
+  if (roundLockFrames > 0) return;
+  const p = world.player, c = world.cpu;
+  const winner = p.health === c.health ? null : p.health > c.health ? p : c;
+  if (winner) winner.roundWins++;
+  ui.announcement.textContent = winner ? `${winner.id === 'player' ? 'Player' : 'CPU'} Wins Round` : 'Round Draw';
+  roundLockFrames = 180;
+}
+
+function resetRoundIfNeeded() {
+  if (roundLockFrames <= 0) return;
+  roundLockFrames--;
+  if (roundLockFrames !== 0) return;
+
+  const p = world.player, c = world.cpu;
+  if (p.roundWins >= CONFIG.roundWinsNeeded || c.roundWins >= CONFIG.roundWinsNeeded) {
+    ui.announcement.textContent = `${p.roundWins > c.roundWins ? 'Player' : 'CPU'} Wins Match`;
+    world.paused = true;
+    return;
+  }
+
+  world.round++;
+  world.timer = CONFIG.roundSeconds;
+  [p, c].forEach((f, i) => {
+    f.health = CONFIG.healthMax;
+    f.x = i === 0 ? 350 : 930;
+    f.y = 560;
+    f.buffer.length = 0;
+    setState(f, State.Idle);
+  });
+  ui.announcement.textContent = '';
+}
+
+function updateHud() {
+  ui.p1Health.style.width = `${(world.player.health / CONFIG.healthMax) * 100}%`;
+  ui.p2Health.style.width = `${(world.cpu.health / CONFIG.healthMax) * 100}%`;
+  ui.timer.textContent = `${Math.max(0, Math.ceil(world.timer))}`;
+  ui.roundText.textContent = world.round >= 3 ? 'Final Round' : `Round ${world.round}`;
+  drawRoundDots(ui.p1Rounds, world.player.roundWins, 'player');
+  drawRoundDots(ui.p2Rounds, world.cpu.roundWins, 'cpu');
+}
+
+function drawRoundDots(node, wins, type) {
+  if (node.childElementCount === CONFIG.roundWinsNeeded) {
+    [...node.children].forEach((dot, idx) => dot.className = `round-dot ${idx < wins ? `won ${type}` : ''}`);
+    return;
+  }
+  node.innerHTML = '';
+  for (let i = 0; i < CONFIG.roundWinsNeeded; i++) {
+    const dot = document.createElement('div');
+    dot.className = `round-dot ${i < wins ? `won ${type}` : ''}`;
+    node.append(dot);
+  }
+}
+
+function drawFighter(f) {
+  const base = f.state === State.Block ? '#ffe489' : f.color;
+  const recoil = f.state === State.HitStun ? 8 : 0;
+  const x = f.x - f.facing * recoil;
+  const y = f.y;
+
+  ctx.strokeStyle = base; ctx.fillStyle = base; ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(x, y - 90, 18, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(x, y - 72); ctx.lineTo(x, y - 20);
+  ctx.moveTo(x, y - 50); ctx.lineTo(x - 25 * f.facing, y - 35);
+  ctx.moveTo(x, y - 50); ctx.lineTo(x + 25 * f.facing, y - 30);
+  ctx.moveTo(x, y - 20); ctx.lineTo(x - 18, y + 28);
+  ctx.moveTo(x, y - 20); ctx.lineTo(x + 18, y + 28);
+
+  if (f.state === State.PunchActive) {
+    ctx.moveTo(x + 25 * f.facing, y - 30); ctx.lineTo(x + 58 * f.facing, y - 30);
+  }
+  if (f.state === State.KickActive) {
+    ctx.moveTo(x + 8 * f.facing, y + 4); ctx.lineTo(x + 60 * f.facing, y + 2);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = '#f7fbff';
+  ctx.font = '14px monospace';
+  ctx.fillText(f.state, x - 48, y - 124);
+}
+
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#dce9ff55';
+  ctx.fillRect(0, 610, canvas.width, 4);
+  drawFighter(world.player);
+  drawFighter(world.cpu);
+}
+
+function step() {
+  if (world.paused) return;
+  world.frame++;
+  [world.player, world.cpu].forEach((f) => f.hitConfirmedThisState = false);
+
+  if (world.hitStopFrames > 0) {
+    world.hitStopFrames--;
+    updateHud();
+    return;
+  }
+
+  simInputForPlayer();
+  simAI();
+  processStates(world.player);
+  processStates(world.cpu);
+  resolveCombat();
+  resetRoundIfNeeded();
+  world.timer -= DT;
+  updateHud();
+}
+
+let lastTime = 0, accumulator = 0;
+function gameLoop(ts) {
+  if (!lastTime) lastTime = ts;
+  accumulator += Math.min(0.06, (ts - lastTime) / 1000);
+  lastTime = ts;
+  while (accumulator >= DT) {
+    step();
+    accumulator -= DT;
+  }
+  render();
+  requestAnimationFrame(gameLoop);
+}
+updateHud();
+requestAnimationFrame(gameLoop);
