@@ -42,6 +42,44 @@ const State = {
   HitStun: 'Hit_Stun', BlockStun: 'Block_Stun', KO: 'KO',
 };
 
+const BONE_LENGTHS = {
+  spineLower: 28,
+  spineUpper: 26,
+  neck: 10,
+  head: 18,
+  clavicle: 10,
+  upperArm: 26,
+  forearm: 24,
+  hand: 8,
+  thigh: 32,
+  shin: 30,
+  foot: 14,
+};
+
+const FIGHTER_RIG = [
+  ['hips', null, 0],
+  ['spineLower', 'hips', BONE_LENGTHS.spineLower],
+  ['spineUpper', 'spineLower', BONE_LENGTHS.spineUpper],
+  ['neck', 'spineUpper', BONE_LENGTHS.neck],
+  ['head', 'neck', BONE_LENGTHS.head],
+  ['shoulderR', 'spineUpper', BONE_LENGTHS.clavicle],
+  ['elbowR', 'shoulderR', BONE_LENGTHS.upperArm],
+  ['wristR', 'elbowR', BONE_LENGTHS.forearm],
+  ['handR', 'wristR', BONE_LENGTHS.hand],
+  ['shoulderL', 'spineUpper', BONE_LENGTHS.clavicle],
+  ['elbowL', 'shoulderL', BONE_LENGTHS.upperArm],
+  ['wristL', 'elbowL', BONE_LENGTHS.forearm],
+  ['handL', 'wristL', BONE_LENGTHS.hand],
+  ['kneeR', 'hips', BONE_LENGTHS.thigh],
+  ['ankleR', 'kneeR', BONE_LENGTHS.shin],
+  ['toeR', 'ankleR', BONE_LENGTHS.foot],
+  ['kneeL', 'hips', BONE_LENGTHS.thigh],
+  ['ankleL', 'kneeL', BONE_LENGTHS.shin],
+  ['toeL', 'ankleL', BONE_LENGTHS.foot],
+];
+
+const BONE_LINKS = FIGHTER_RIG.filter(([, parent]) => parent);
+
 class Fighter {
   constructor(id, color, x) {
     this.id = id; this.color = color; this.x = x; this.y = 560;
@@ -364,35 +402,207 @@ function drawRoundDots(node, wins, type) {
   }
 }
 
+function blendAngles(base, overlay) {
+  return { ...base, ...overlay };
+}
+
+function getRigPose(f) {
+  const walkCycle = Math.sin(world.frame * 0.18 + (f.id === 'cpu' ? Math.PI : 0));
+  const idleSway = Math.sin(world.frame * 0.05 + (f.id === 'cpu' ? 1.6 : 0.7));
+  const moving = f.state === State.Move;
+  const hitRecoil = f.state === State.HitStun ? 0.4 : 0;
+
+  let pose = {
+    hips: -90,
+    spineLower: -86 - hitRecoil * 25,
+    spineUpper: -82 - hitRecoil * 30,
+    neck: -82,
+    head: -82,
+    shoulderR: -25,
+    elbowR: 18,
+    wristR: 4,
+    shoulderL: -148,
+    elbowL: 18,
+    wristL: -4,
+    kneeR: 84,
+    ankleR: 86,
+    toeR: 4,
+    kneeL: 98,
+    ankleL: 94,
+    toeL: -4,
+  };
+
+  if (moving) {
+    pose = blendAngles(pose, {
+      hips: -88,
+      spineLower: -84,
+      spineUpper: -78,
+      shoulderR: -28 + walkCycle * 18,
+      shoulderL: -152 - walkCycle * 18,
+      elbowR: 24 - walkCycle * 6,
+      elbowL: 20 + walkCycle * 6,
+      kneeR: 92 + walkCycle * 26,
+      kneeL: 92 - walkCycle * 26,
+      ankleR: 95 - walkCycle * 18,
+      ankleL: 95 + walkCycle * 18,
+      toeR: walkCycle * 8,
+      toeL: -walkCycle * 8,
+    });
+  } else {
+    pose = blendAngles(pose, {
+      spineLower: pose.spineLower + idleSway * 2,
+      spineUpper: pose.spineUpper + idleSway * 3,
+      shoulderR: pose.shoulderR + idleSway * 4,
+      shoulderL: pose.shoulderL - idleSway * 4,
+    });
+  }
+
+  if (f.state === State.Block) {
+    pose = blendAngles(pose, {
+      spineLower: -75,
+      spineUpper: -68,
+      shoulderR: -38,
+      elbowR: -20,
+      shoulderL: -142,
+      elbowL: -14,
+      wristR: -20,
+      wristL: 18,
+      kneeR: 102,
+      kneeL: 102,
+    });
+  }
+
+  if (f.state === State.PunchStartup) {
+    pose = blendAngles(pose, {
+      spineUpper: -72,
+      shoulderR: -8,
+      elbowR: 52,
+      shoulderL: -160,
+      elbowL: 38,
+    });
+  }
+
+  if (f.state === State.PunchActive) {
+    pose = blendAngles(pose, {
+      spineLower: -82,
+      spineUpper: -56,
+      shoulderR: 10,
+      elbowR: 8,
+      wristR: 0,
+      shoulderL: -170,
+      elbowL: 42,
+      toeR: 10,
+    });
+  }
+
+  if (f.state === State.KickStartup) {
+    pose = blendAngles(pose, {
+      spineUpper: -70,
+      shoulderR: -36,
+      shoulderL: -134,
+      kneeR: 70,
+      ankleR: 80,
+      toeR: 24,
+    });
+  }
+
+  if (f.state === State.KickActive) {
+    pose = blendAngles(pose, {
+      hips: -88,
+      spineLower: -82,
+      spineUpper: -66,
+      shoulderR: -40,
+      shoulderL: -128,
+      kneeR: 14,
+      ankleR: 16,
+      toeR: -2,
+      kneeL: 112,
+      ankleL: 98,
+    });
+  }
+
+  return pose;
+}
+
+function projectPoint(point3d, yaw, centerX, centerY) {
+  const cosY = Math.cos(yaw);
+  const sinY = Math.sin(yaw);
+  const worldX = point3d.x * cosY - point3d.z * sinY;
+  const worldZ = point3d.x * sinY + point3d.z * cosY;
+  const depth = 340 + worldZ;
+  const perspective = 340 / Math.max(160, depth);
+  return {
+    x: centerX + worldX * perspective,
+    y: centerY + point3d.y * perspective,
+    scale: perspective,
+    zSort: worldZ,
+  };
+}
+
+function buildSkeleton(f) {
+  const pose = getRigPose(f);
+  const joints = {
+    hips: { x: 0, y: 0, z: 0 },
+  };
+
+  for (const [name, parent, length] of FIGHTER_RIG) {
+    if (!parent) continue;
+    const parentPoint = joints[parent];
+    const angle = (pose[parent] ?? -90) * Math.PI / 180;
+    const depthTilt = (pose[name] ?? pose[parent] ?? -90) * Math.PI / 180;
+    const sideways = name.endsWith('R') ? 1 : name.endsWith('L') ? -1 : 0;
+    joints[name] = {
+      x: parentPoint.x + Math.cos(angle) * length + sideways * 2,
+      y: parentPoint.y + Math.sin(angle) * length,
+      z: parentPoint.z + Math.cos(depthTilt) * sideways * 8,
+    };
+  }
+
+  return joints;
+}
+
 function drawFighter(f) {
   const base = f.state === State.Block ? '#ffe489' : f.color;
   const recoil = f.state === State.HitStun ? 8 : 0;
-  const x = f.x - f.facing * recoil;
-  const y = f.y;
+  const centerX = f.x - f.facing * recoil;
+  const centerY = f.y - 16;
+  const yaw = f.facing === 1 ? -0.35 : Math.PI + 0.35;
+  const skeleton = buildSkeleton(f);
 
-  ctx.strokeStyle = base; ctx.fillStyle = base; ctx.lineWidth = 6;
+  const projected = Object.fromEntries(
+    Object.entries(skeleton).map(([name, point]) => [name, projectPoint(point, yaw, centerX, centerY)]),
+  );
+
+  const orderedLinks = [...BONE_LINKS].sort((a, b) => {
+    const [, parentA] = a;
+    const [, parentB] = b;
+    return projected[parentA].zSort - projected[parentB].zSort;
+  });
+
+  ctx.lineCap = 'round';
+  for (const [bone, parent] of orderedLinks) {
+    const a = projected[parent];
+    const b = projected[bone];
+    const thickness = Math.max(2, 5.2 * ((a.scale + b.scale) * 0.5));
+    ctx.strokeStyle = base;
+    ctx.globalAlpha = 0.8 + Math.min(0.2, (a.scale + b.scale) * 0.15);
+    ctx.lineWidth = thickness;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+
+  const head = projected.head;
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = base;
   ctx.beginPath();
-  ctx.arc(x, y - 90, 18, 0, Math.PI * 2);
+  ctx.arc(head.x, head.y, Math.max(8, 12 * head.scale), 0, Math.PI * 2);
   ctx.fill();
-
-  ctx.beginPath();
-  ctx.moveTo(x, y - 72); ctx.lineTo(x, y - 20);
-  ctx.moveTo(x, y - 50); ctx.lineTo(x - 25 * f.facing, y - 35);
-  ctx.moveTo(x, y - 50); ctx.lineTo(x + 25 * f.facing, y - 30);
-  ctx.moveTo(x, y - 20); ctx.lineTo(x - 18, y + 28);
-  ctx.moveTo(x, y - 20); ctx.lineTo(x + 18, y + 28);
-
-  if (f.state === State.PunchActive) {
-    ctx.moveTo(x + 25 * f.facing, y - 30); ctx.lineTo(x + 58 * f.facing, y - 30);
-  }
-  if (f.state === State.KickActive) {
-    ctx.moveTo(x + 8 * f.facing, y + 4); ctx.lineTo(x + 60 * f.facing, y + 2);
-  }
-  ctx.stroke();
 
   ctx.fillStyle = '#f7fbff';
   ctx.font = '14px monospace';
-  ctx.fillText(f.state, x - 48, y - 124);
+  ctx.fillText(f.state, centerX - 48, centerY - 126);
 }
 
 function render() {
