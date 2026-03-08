@@ -112,11 +112,22 @@ Root (Center of Gravity / Hips)
 
 7. **Symmetry** — Build one side, then mirror. Name bones with `_L` / `_R` suffixes. Blender's "Symmetrize" feature handles this automatically.
 
-### Blender Rigging Tools
+### Blender Rigging Tools & Add-ons
 
-- **Rigify** (built-in) — Generates a production-quality control rig from a meta-rig template. Supports humanoid, quadruped, and custom configurations. Free.
-- **Auto-Rig Pro** (~$40 add-on) — One-click rigging with Mixamo compatibility, animation retargeting, game engine export presets (including glTF). Extremely popular for game dev.
-- **Cascadeur** (free tier) — AI-assisted animation tool with physics-aware posing. Now has Blender integration and glTF export.
+| Add-on | Price | Key Features |
+|--------|-------|-------------|
+| **Rigify** (built-in) | Free | Standard rig generation, building-block approach, widely supported |
+| **Auto-Rig Pro** | ~$40 | One-click rigging, Mixamo retargeting, game engine export presets (glTF), twist bones |
+| **GameRig** | Free | Built on Rigify, produces clean game-engine rigs, single bone hierarchy, open source |
+| **Game Rig Tools** | Free/Paid | Extracts deform rig from control rig in clicks |
+| **CloudRig** | Free | Blender Studio's advanced rig generator, FK/IK switching, facial rigs |
+| **Cascadeur** | Free tier | AI-assisted animation with physics-aware posing, Blender integration, glTF export |
+
+### Character Generator Tools (Blender)
+
+- **CharMorph 0.4** (free, CC0) — Open-source character generator for Blender. Generates custom rigged 3D characters with hair/clothing.
+- **MPFB 2 / MakeHuman Plugin** (free, CC0) — Auto-rigs characters with multiple rig options including Rigify. CC0 license on generated content.
+- **Rain Character Rig** (Blender Studio) — Official Blender Studio rig, CC-BY licensed, updated for Blender 4.1+.
 
 ### Weight Painting Best Practices
 
@@ -635,6 +646,30 @@ Search terms to find relevant animations on Mixamo:
 | **DeepMotion** | AI motion capture from video | FBX/BVH/glTF | Free tier |
 | **Plask** | AI-powered motion capture from video | FBX/glTF | Free tier |
 
+### Motion Capture Databases with Fighting/Martial Arts
+
+| Source | Content | Format | License |
+|--------|---------|--------|---------|
+| **Bandai Namco Research** | 3,000+ mocap moves including fighting styles | BVH | CC-BY-NC-ND (personal/research) |
+| **Rokoko Free Martial Arts Pack** | 6 full-body martial arts animations with fingers | FBX/BVH | Commercial use OK |
+| **MotionCaptureData.com** | 19 karate mocap files | BVH/FBX/C3D | Free, no restrictions |
+| **SFU Motion Capture Database** | Academic database with diverse motions | FBX/BVH | Academic |
+| **Animium Martial Art BVH** | Chinese kung fu motion capture | BVH/BIP | Free |
+
+**Workflow**: Import BVH/FBX into Blender → retarget to your character rig → bake keyframes → export as glTF.
+
+### AI-Powered Animation Tools
+
+| Tool | How It Works | Output | Cost |
+|------|-------------|--------|------|
+| **DeepMotion** | AI mocap from video via browser — record yourself doing fighting moves | FBX | $15/mo+ |
+| **Rokoko Video** | Free AI mocap from webcam/video, cloud-processed | FBX/BVH | Free |
+| **Cascadeur** | Physics-based animation with AI-assisted posing — great for combat | FBX → Blender | Free tier |
+| **Move.ai** | Markerless motion capture from phone video | FBX/BVH | Paid |
+| **Cartwheel** | Text-to-motion generation | Various | Emerging |
+
+**DIY fighting animations**: Record yourself performing moves with a webcam → process through DeepMotion or Rokoko Video → export FBX → import to Blender → clean up timing → export as glTF.
+
 ### Animation Retargeting
 
 When using animations from different sources, retargeting is needed to fit them to your character's rig:
@@ -741,6 +776,20 @@ Libraries for web ragdoll physics:
 - **Cannon-es** — Lightweight physics for Three.js
 - **Rapier** — High-performance Rust-based physics with WASM bindings
 - **Ammo.js** — Bullet physics compiled to WASM
+
+### 9.7 Inverse Kinematics Libraries for Three.js
+
+| Library | Description | Best For |
+|---------|-------------|----------|
+| **CCDIKSolver** (Three.js built-in) | Part of Three.js examples/addons, most maintained | Basic IK needs, foot placement |
+| **THREE.IK** | FABRIK-based IK, multiple chains + constraints | Procedural hit reactions, complex IK setups |
+| **Fullik** | Another IK library, less community adoption | Experimental use |
+
+**Use cases for a fighting game**:
+- Runtime IK for foot placement on uneven ground
+- Procedural hit reactions (character recoils based on hit direction)
+- Look-at / head tracking toward opponent
+- Blending between keyframed animations and IK-driven adjustments
 
 ### 9.6 Hit-Stop Implementation
 
@@ -863,6 +912,11 @@ Target: **Stable 60 FPS on mid-range mobile (2022+ device)**
 | [RancidMilk (itch.io)](https://rancidmilk.itch.io/free-character-animations) | Massive animation library (CMU MoCap based) | FBX/glTF | CC0 |
 | [Free3D](https://free3d.com) | Character base meshes | Various | Varies |
 | [Ready Player Me](https://readyplayer.me) | Customizable avatars | glTF | Free tier |
+| [TurboSquid](https://www.turbosquid.com) | 400+ free fighter models, 600+ free glTF models | Various/glTF | Varies |
+| [CGTrader](https://www.cgtrader.com/3d-models/gltf) | 63k+ glTF models, filter by free/rigged/low-poly | glTF | Varies |
+| [OpenGameArt](https://opengameart.org) | Community-contributed game assets | Various | CC/GPL |
+| [CharMorph](https://github.com/nicktlsn/CharMorph) | Open-source Blender character generator | Blender/glTF | CC0 |
+| [MPFB 2 / MakeHuman](https://static.makehumancommunity.org/mpfb.html) | Auto-rigged characters with Rigify support | Blender/FBX | CC0 |
 
 ### Recommended Starting Points
 
@@ -971,3 +1025,25 @@ Target: **Stable 60 FPS on mid-range mobile (2022+ device)**
 - [RancidMilk Animations](https://rancidmilk.itch.io/free-character-animations) — CC0 mocap library
 - [KayKit Character Packs](https://kaylousberg.itch.io/) — CC0 stylized characters
 - [awesome-cc0 GitHub](https://github.com/madjin/awesome-cc0) — Curated CC0 asset list
+- [TurboSquid](https://www.turbosquid.com) — Free fighter models
+- [CGTrader](https://www.cgtrader.com/3d-models/gltf) — glTF model marketplace
+- [OpenGameArt](https://opengameart.org) — Community game assets
+
+### Motion Capture & AI Animation
+- [Bandai Namco Research MoCap](https://www.cgchannel.com/2022/05/download-3000-free-mocap-moves-from-bandai-namco-research/) — 3k+ free mocap moves
+- [Rokoko Free Martial Arts Pack](https://www.rokoko.com/resources/rokoko-mocap-6-free-martial-arts-animations) — Free combat animations
+- [MotionCaptureData.com](https://motioncapturedata.com/category/fighting/) — Free karate mocap
+- [DeepMotion](https://www.deepmotion.com/) — AI video-to-mocap
+- [Mesh2Motion](https://gamefromscratch.com/mesh2motion-open-source-mixamo-alternative/) — Open-source Mixamo alternative
+
+### Blender Add-ons & Character Generators
+- [GameRig](https://github.com/Arminando/GameRig) — Open-source game-engine rig generator
+- [CharMorph](https://www.cgchannel.com/2025/03/check-out-new-open-source-3d-character-generator-charmorph/) — CC0 character generator
+- [MPFB 2](https://www.cgchannel.com/2025/03/check-out-open-source-blender-character-generation-plugin-mpfb-2/) — MakeHuman Blender plugin
+- [Rigify vs Auto-Rig Pro comparison](https://cgdive.com/rigify-vs-auto-rig-pro-auto-rigging-comparison/)
+- [Best Rigging Add-ons 2025](https://www.whizzystudios.com/post/best-rigging-add-ons-for-blender-in-2025-beyond-rigify-and-auto-rig-pro)
+
+### Three.js IK & Procedural Animation
+- [THREE.IK](https://github.com/jsantell/THREE.IK) — FABRIK-based IK for Three.js
+- [Three.js CCDIKSolver Example](https://github.com/mrdoob/three.js/blob/master/examples/webgl_animation_skinning_ik.html) — Built-in IK
+- [Blender to Three.js Export Guide](https://github.com/funwithtriangles/blender-to-threejs-export-guide)
