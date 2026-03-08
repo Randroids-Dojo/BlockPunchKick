@@ -1,0 +1,233 @@
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
+
+let scene, camera, renderer, clock;
+let fighterModels = {};
+let mixers = {};
+let actions = {};
+let currentClips = {};
+let shakeOffset = { x: 0, y: 0 };
+let shakeDecay = 0;
+
+const ANIM_MAP = {
+  Idle: 'Idle',
+  Move: 'Walking',
+  Block: 'Standing',
+  Block_Recovery: 'Standing',
+  Punch_Startup: 'Punch',
+  Punch_Active: 'Punch',
+  Punch_Recovery: 'Punch',
+  Kick_Startup: 'Jump',
+  Kick_Active: 'Jump',
+  Kick_Recovery: 'Jump',
+  Hit_Stun: 'Death',
+  Block_Stun: 'No',
+  KO: 'Death',
+};
+
+const BLEND_TIME = 0.08;
+
+// Map game world coords to 3D scene coords
+// Game arena: x 100-1180, y 430-600
+// 3D scene: x roughly -5 to 5, z for depth
+function gameToWorld(gx, gy) {
+  const cx = (gx - 640) / 108;
+  const cz = (gy - 515) / 108;
+  return { x: cx, z: cz };
+}
+
+export async function initScene(canvas) {
+  clock = new THREE.Clock();
+
+  scene = new THREE.Scene();
+
+  camera = new THREE.PerspectiveCamera(40, canvas.width / canvas.height, 0.1, 100);
+  camera.position.set(0, 3.5, 12);
+  camera.lookAt(0, 1.5, 0);
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setSize(canvas.width, canvas.height);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.2;
+
+  // Lighting
+  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  scene.add(ambient);
+
+  const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.0);
+  dirLight1.position.set(5, 8, 5);
+  scene.add(dirLight1);
+
+  const dirLight2 = new THREE.DirectionalLight(0x8899ff, 0.4);
+  dirLight2.position.set(-5, 4, -3);
+  scene.add(dirLight2);
+
+  // Ground plane
+  const groundGeo = new THREE.PlaneGeometry(16, 6);
+  const groundMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1a2e,
+    roughness: 0.8,
+    metalness: 0.2,
+  });
+  const ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = 0;
+  scene.add(ground);
+
+  // Grid lines on ground for visual reference
+  const gridHelper = new THREE.GridHelper(14, 28, 0x333355, 0x222244);
+  gridHelper.position.y = 0.005;
+  scene.add(gridHelper);
+
+  // Load fighters
+  const loader = new GLTFLoader();
+  const gltf = await loader.loadAsync('assets/RobotExpressive.glb');
+
+  // Player fighter
+  const playerModel = gltf.scene;
+  playerModel.scale.setScalar(1.0);
+  scene.add(playerModel);
+  fighterModels.player = playerModel;
+
+  const playerMixer = new THREE.AnimationMixer(playerModel);
+  mixers.player = playerMixer;
+  actions.player = {};
+  currentClips.player = null;
+
+  for (const clip of gltf.animations) {
+    const action = playerMixer.clipAction(clip);
+    actions.player[clip.name] = action;
+  }
+
+  // CPU fighter (clone with skeleton support)
+  const cpuModel = skeletonClone(playerModel);
+  scene.add(cpuModel);
+  fighterModels.cpu = cpuModel;
+
+  // Tint CPU fighter red
+  cpuModel.traverse((child) => {
+    if (child.isMesh && child.material) {
+      child.material = child.material.clone();
+      child.material.color.setHex(0xff6644);
+    }
+  });
+
+  const cpuMixer = new THREE.AnimationMixer(cpuModel);
+  mixers.cpu = cpuMixer;
+  actions.cpu = {};
+  currentClips.cpu = null;
+
+  for (const clip of gltf.animations) {
+    const action = cpuMixer.clipAction(clip);
+    actions.cpu[clip.name] = action;
+  }
+
+  // Start both in idle
+  playClip('player', 'Idle');
+  playClip('cpu', 'Idle');
+}
+
+function playClip(fighterId, clipName) {
+  const clips = actions[fighterId];
+  if (!clips || !clips[clipName]) return;
+
+  const current = currentClips[fighterId];
+  const next = clips[clipName];
+
+  if (current === clipName) return;
+
+  if (current && clips[current]) {
+    clips[current].crossFadeTo(next, BLEND_TIME, false);
+  }
+
+  next.reset();
+  next.play();
+  currentClips[fighterId] = clipName;
+}
+
+export function updateFighter(fighterId, fighter, gameState) {
+  const model = fighterModels[fighterId];
+  if (!model) return;
+
+  // Position
+  const pos = gameToWorld(fighter.x, fighter.y);
+  model.position.x = pos.x;
+  model.position.z = pos.z;
+  model.position.y = 0;
+
+  // Facing
+  model.rotation.y = fighter.facing === 1 ? Math.PI / 2 : -Math.PI / 2;
+
+  // Animation — use Running for fast movement, Walking for slow
+  let clipName = ANIM_MAP[fighter.state] || 'Idle';
+  if (fighter.state === 'Move') {
+    const speed = Math.sqrt(fighter.vx * fighter.vx + fighter.vy * fighter.vy);
+    clipName = speed > 180 ? 'Running' : 'Walking';
+  }
+  playClip(fighterId, clipName);
+
+  // Playback speed adjustments for attack states
+  const currentAction = actions[fighterId]?.[clipName];
+  if (currentAction) {
+    if (fighter.state.includes('Startup')) {
+      currentAction.timeScale = 1.5;
+    } else if (fighter.state.includes('Recovery')) {
+      currentAction.timeScale = 0.5;
+    } else if (fighter.state === 'Move') {
+      const speed = Math.sqrt(fighter.vx * fighter.vx + fighter.vy * fighter.vy);
+      currentAction.timeScale = Math.max(0.5, speed / 200);
+    } else {
+      currentAction.timeScale = 1.0;
+    }
+  }
+
+  // Hit flash effect
+  if (fighter.state === 'Hit_Stun' && fighter.stateFrame < 4) {
+    model.traverse((child) => {
+      if (child.isMesh && child.material) {
+        child.material.emissive = child.material.emissive || new THREE.Color();
+        child.material.emissive.setHex(0xffffff);
+        child.material.emissiveIntensity = 0.8;
+      }
+    });
+  } else {
+    model.traverse((child) => {
+      if (child.isMesh && child.material) {
+        child.material.emissiveIntensity = 0;
+      }
+    });
+  }
+}
+
+export function triggerScreenShake(intensity) {
+  shakeDecay = intensity;
+}
+
+export function render3d() {
+  if (!renderer) return;
+
+  const delta = clock.getDelta();
+
+  // Update animation mixers
+  if (mixers.player) mixers.player.update(delta);
+  if (mixers.cpu) mixers.cpu.update(delta);
+
+  // Screen shake
+  if (shakeDecay > 0) {
+    shakeOffset.x = (Math.random() - 0.5) * shakeDecay * 0.05;
+    shakeOffset.y = (Math.random() - 0.5) * shakeDecay * 0.03;
+    shakeDecay *= 0.85;
+    if (shakeDecay < 0.5) shakeDecay = 0;
+  } else {
+    shakeOffset.x = 0;
+    shakeOffset.y = 0;
+  }
+
+  camera.position.x = shakeOffset.x;
+  camera.position.y = 3.5 + shakeOffset.y;
+
+  renderer.render(scene, camera);
+}
