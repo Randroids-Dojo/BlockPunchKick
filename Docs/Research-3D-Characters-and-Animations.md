@@ -562,6 +562,12 @@ In Blender's **NLA (Non-Linear Animation) Editor**:
 
 #### Step 5: Export as glTF/GLB
 
+**Critical export rules:**
+- **One armature per file** — don't export multiple armatures
+- **Don't use bendy bones** — they don't export to any standardized format
+- **Materials** — use Principled BSDF only (maps to glTF PBR). Supported maps: Color, Metallic, Roughness, AO, Normal, Emissive
+- **Validate exports** with [glTF Viewer](https://gltf-viewer.donmccurdy.com/) before writing any code
+
 1. File → Export → glTF 2.0
 2. Settings:
    - Format: **GLB** (single binary file, best for web)
@@ -790,6 +796,82 @@ Libraries for web ragdoll physics:
 - Procedural hit reactions (character recoils based on hit direction)
 - Look-at / head tracking toward opponent
 - Blending between keyframed animations and IK-driven adjustments
+
+### 9.8 3D Hitbox/Hurtbox Implementation
+
+The current 2D range-band hit detection translates to 3D with these approaches:
+
+**Option A — AABB (Axis-Aligned Bounding Boxes)** (recommended for BlockPunchKick):
+```javascript
+// Attach Box3 to limb bones, recompute each frame from bone world position
+const punchHitbox = new THREE.Box3();
+const hurtbox = new THREE.Box3();
+
+function updateHitboxes(fighter) {
+    // Get fist bone world position
+    const fistBone = fighter.model.getObjectByName('Hand_R');
+    const fistPos = new THREE.Vector3();
+    fistBone.getWorldPosition(fistPos);
+
+    // Set hitbox around fist (only active during ACTIVE frames)
+    if (fighter.state === 'PUNCH_ACTIVE') {
+        punchHitbox.setFromCenterAndSize(fistPos, new THREE.Vector3(0.3, 0.3, 0.3));
+    }
+
+    // Set hurtbox around torso (always active)
+    const spineBone = fighter.model.getObjectByName('Spine_Upper');
+    const spinePos = new THREE.Vector3();
+    spineBone.getWorldPosition(spinePos);
+    hurtbox.setFromCenterAndSize(spinePos, new THREE.Vector3(0.6, 1.0, 0.4));
+
+    // Test intersection
+    if (punchHitbox.intersectsBox(opponentHurtbox)) {
+        // Hit confirmed!
+    }
+}
+```
+
+**Option B — Bounding Spheres** — rotation-invariant, good for fist/foot hitboxes:
+```javascript
+const fistSphere = new THREE.Sphere(fistWorldPos, 0.15);
+const bodyHurtSphere = new THREE.Sphere(torsoWorldPos, 0.5);
+if (fistSphere.intersectsSphere(bodyHurtSphere)) { /* hit */ }
+```
+
+**Recommendation**: Keep the existing frame-data-driven hit logic, just replace 2D rectangle checks with `Box3.intersectsBox()`. The game logic stays deterministic; only the spatial check changes.
+
+### 9.9 WebGPU for Three.js (Future-Proofing)
+
+As of 2026, WebGPU is supported in all major browsers (~95% coverage). Three.js r171+ supports it with automatic WebGL2 fallback:
+
+```javascript
+// Single import change — WebGPU with auto WebGL2 fallback
+import * as THREE from 'three/webgpu';
+```
+
+| Capability | WebGL2 | WebGPU |
+|---|---|---|
+| Draw calls | Sequential, single-thread | Multi-threaded command submission |
+| Compute shaders | Not available | Full support (particles, physics on GPU) |
+| Performance ceiling | Good for simple scenes | 2-10x better for complex scenes |
+
+**For BlockPunchKick**: A 1v1 fighter with simple arena is well within WebGL2's capabilities. However, using the `three/webgpu` import is free future-proofing with zero downside since it falls back automatically.
+
+### 9.10 SkeletonUtils for Character Cloning
+
+Since both fighters share the same rig, use `SkeletonUtils` to efficiently clone skinned meshes:
+
+```javascript
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+
+// Clone a skinned mesh (preserves skeleton + materials)
+const player2Model = SkeletonUtils.clone(player1Model);
+
+// Retarget animations between skeletons with different proportions
+const retargetedClip = SkeletonUtils.retargetClip(
+    targetModel, sourceModel, sourceClip, options
+);
+```
 
 ### 9.6 Hit-Stop Implementation
 
@@ -1047,3 +1129,20 @@ Target: **Stable 60 FPS on mid-range mobile (2022+ device)**
 - [THREE.IK](https://github.com/jsantell/THREE.IK) — FABRIK-based IK for Three.js
 - [Three.js CCDIKSolver Example](https://github.com/mrdoob/three.js/blob/master/examples/webgl_animation_skinning_ik.html) — Built-in IK
 - [Blender to Three.js Export Guide](https://github.com/funwithtriangles/blender-to-threejs-export-guide)
+
+### WebGPU & Performance
+- [WebGL vs WebGPU Explained](https://threejsroadmap.com/blog/webgl-vs-webgpu-explained)
+- [What Changed in Three.js 2026](https://www.utsubo.com/blog/threejs-2026-what-changed)
+- [web.dev: WebGPU Browser Support](https://web.dev/blog/webgpu-supported-major-browsers)
+- [100 Three.js Performance Tips](https://www.utsubo.com/blog/threejs-best-practices-100-tips)
+- [Codrops: Efficient Three.js Scenes](https://tympanus.net/codrops/2025/02/11/building-efficient-three-js-scenes-optimize-performance-while-maintaining-quality/)
+
+### Hitboxes & Collision Detection
+- [MDN: 3D Collision Detection](https://developer.mozilla.org/en-US/docs/Games/Techniques/3D_collision_detection)
+- [MDN: Bounding Volumes with Three.js](https://developer.mozilla.org/en-US/docs/Games/Techniques/3D_collision_detection/Bounding_volume_collision_detection_with_THREE.js)
+
+### Additional Three.js Tutorials
+- [Three.js Animation System Manual](https://threejs.org/manual/en/animation-system.html)
+- [SkeletonUtils Docs](https://threejs.org/docs/pages/module-SkeletonUtils.html)
+- [Bryan Jones: Basic Three.js Game Tutorial](https://bryanjones.us/article/basic-threejs-game-tutorial-part-1-basics)
+- [Three.js vs Babylon.js vs PlayCanvas 2026](https://www.utsubo.com/blog/threejs-vs-babylonjs-vs-playcanvas-comparison)
