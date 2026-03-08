@@ -3,16 +3,17 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 
 let scene, camera, renderer, clock;
-let fighterModels = {};
-let mixers = {};
-let actions = {};
-let currentClips = {};
-let shakeOffset = { x: 0, y: 0 };
+const fighterModels = {};
+const mixers = {};
+const actions = {};
+const currentClips = {};
+const meshCache = {};
+const shakeOffset = { x: 0, y: 0 };
 let shakeDecay = 0;
+const cameraLookAt = new THREE.Vector3(0, 1.5, 0);
 
 const ANIM_MAP = {
   Idle: 'Idle',
-  Move: 'Walking',
   Block: 'Standing',
   Block_Recovery: 'Standing',
   Punch_Startup: 'Punch',
@@ -88,7 +89,6 @@ export async function initScene(canvas) {
 
   // Player fighter
   const playerModel = gltf.scene;
-  playerModel.scale.setScalar(1.0);
   scene.add(playerModel);
   fighterModels.player = playerModel;
 
@@ -107,13 +107,21 @@ export async function initScene(canvas) {
   scene.add(cpuModel);
   fighterModels.cpu = cpuModel;
 
-  // Tint CPU fighter red
+  // Tint CPU fighter red and cache meshes
   cpuModel.traverse((child) => {
     if (child.isMesh && child.material) {
       child.material = child.material.clone();
       child.material.color.setHex(0xff6644);
     }
   });
+
+  // Cache mesh references for per-frame operations
+  for (const id of ['player', 'cpu']) {
+    meshCache[id] = [];
+    fighterModels[id].traverse((child) => {
+      if (child.isMesh && child.material) meshCache[id].push(child);
+    });
+  }
 
   const cpuMixer = new THREE.AnimationMixer(cpuModel);
   mixers.cpu = cpuMixer;
@@ -128,6 +136,9 @@ export async function initScene(canvas) {
   // Start both in idle
   playClip('player', 'Idle');
   playClip('cpu', 'Idle');
+
+  // Flush accumulated clock delta from async load
+  clock.getDelta();
 }
 
 function playClip(fighterId, clipName) {
@@ -148,7 +159,7 @@ function playClip(fighterId, clipName) {
   currentClips[fighterId] = clipName;
 }
 
-export function updateFighter(fighterId, fighter, gameState) {
+export function updateFighter(fighterId, fighter) {
   const model = fighterModels[fighterId];
   if (!model) return;
 
@@ -162,14 +173,14 @@ export function updateFighter(fighterId, fighter, gameState) {
   model.rotation.y = fighter.facing === 1 ? Math.PI / 2 : -Math.PI / 2;
 
   // Animation — use Running for fast movement, Walking for slow
+  const speed = Math.sqrt(fighter.vx * fighter.vx + fighter.vy * fighter.vy);
   let clipName = ANIM_MAP[fighter.state] || 'Idle';
   if (fighter.state === 'Move') {
-    const speed = Math.sqrt(fighter.vx * fighter.vx + fighter.vy * fighter.vy);
     clipName = speed > 180 ? 'Running' : 'Walking';
   }
   playClip(fighterId, clipName);
 
-  // Playback speed adjustments for attack states
+  // Playback speed adjustments
   const currentAction = actions[fighterId]?.[clipName];
   if (currentAction) {
     if (fighter.state.includes('Startup')) {
@@ -177,28 +188,20 @@ export function updateFighter(fighterId, fighter, gameState) {
     } else if (fighter.state.includes('Recovery')) {
       currentAction.timeScale = 0.5;
     } else if (fighter.state === 'Move') {
-      const speed = Math.sqrt(fighter.vx * fighter.vx + fighter.vy * fighter.vy);
       currentAction.timeScale = Math.max(0.5, speed / 200);
     } else {
       currentAction.timeScale = 1.0;
     }
   }
 
-  // Hit flash effect
-  if (fighter.state === 'Hit_Stun' && fighter.stateFrame < 4) {
-    model.traverse((child) => {
-      if (child.isMesh && child.material) {
-        child.material.emissive = child.material.emissive || new THREE.Color();
-        child.material.emissive.setHex(0xffffff);
-        child.material.emissiveIntensity = 0.8;
-      }
-    });
-  } else {
-    model.traverse((child) => {
-      if (child.isMesh && child.material) {
-        child.material.emissiveIntensity = 0;
-      }
-    });
+  // Hit flash effect (uses cached mesh references)
+  const meshes = meshCache[fighterId];
+  const flashing = fighter.state === 'Hit_Stun' && fighter.stateFrame < 4;
+  if (meshes) {
+    for (const mesh of meshes) {
+      mesh.material.emissiveIntensity = flashing ? 0.8 : 0;
+      if (flashing) mesh.material.emissive.setHex(0xffffff);
+    }
   }
 }
 
@@ -228,6 +231,7 @@ export function render3d() {
 
   camera.position.x = shakeOffset.x;
   camera.position.y = 3.5 + shakeOffset.y;
+  camera.lookAt(cameraLookAt);
 
   renderer.render(scene, camera);
 }

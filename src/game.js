@@ -371,8 +371,8 @@ function drawRoundDots(node, wins, type) {
 
 function render() {
   if (!rendererReady) return;
-  updateFighter('player', world.player, world);
-  updateFighter('cpu', world.cpu, world);
+  updateFighter('player', world.player);
+  updateFighter('cpu', world.cpu);
   render3d();
 }
 
