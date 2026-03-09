@@ -90,18 +90,29 @@ function setInput(key, val) {
 }
 
 function setupMobileControls() {
+  // Hold-to-repeat for all action buttons (block, punch, kick)
   const bindHold = (id, field) => {
     const el = document.getElementById(id);
-    el.addEventListener('pointerdown', () => world.input[field] = true);
-    el.addEventListener('pointerup', () => world.input[field] = false);
-    el.addEventListener('pointercancel', () => world.input[field] = false);
-    el.addEventListener('pointerleave', () => world.input[field] = false);
+    let repeatInterval = null;
+    const start = (e) => {
+      e.preventDefault();
+      world.input[field] = true;
+      if (field !== 'block' && !repeatInterval) {
+        repeatInterval = setInterval(() => { world.input[field] = true; }, 120);
+      }
+    };
+    const stop = () => {
+      world.input[field] = false;
+      if (repeatInterval) { clearInterval(repeatInterval); repeatInterval = null; }
+    };
+    el.addEventListener('pointerdown', start);
+    el.addEventListener('pointerup', stop);
+    el.addEventListener('pointercancel', stop);
+    el.addEventListener('pointerleave', stop);
   };
   bindHold('block-btn', 'block');
-  ['punch', 'kick'].forEach((name) => {
-    const el = document.getElementById(`${name}-btn`);
-    el.addEventListener('pointerdown', () => world.input[name] = true);
-  });
+  bindHold('punch-btn', 'punch');
+  bindHold('kick-btn', 'kick');
 
   const zone = document.getElementById('dpad-zone');
   const pad = document.getElementById('dpad');
