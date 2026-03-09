@@ -40,3 +40,19 @@ body {
 .btn.kick { background:#bf4a4a; }
 .help { margin-top: 10px; color:#ccdaff; }
 @media (min-width: 900px) { .mobile-controls { max-width: 660px; margin-inline:auto; } }
+
+/* Embedded in iframe — scale everything to fit */
+.embedded body { background: transparent; }
+.embedded .game-shell {
+  max-width: 100%;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+.embedded #arena { flex: 1 1 auto; min-height: 0; }
+.embedded .mobile-controls { margin-top: 6px; flex-shrink: 0; }
+.embedded .btn { font-size: 1.1rem; padding: 16px 20px; }
+.embedded .dpad-zone { min-height: 100px; }
+.embedded .help { display: none; }

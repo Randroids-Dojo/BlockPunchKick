@@ -13,7 +13,8 @@ let shakeDecay = 0;
 const cameraLookAt = new THREE.Vector3(0, 1.5, 0);
 
 // Zoom state — default pulled back to show full arena
-const DEFAULT_ZOOM = 18;
+const isEmbedded = window.self !== window.top;
+const DEFAULT_ZOOM = isEmbedded ? 24 : 18;
 const MIN_ZOOM = 8;   // closest
 const MAX_ZOOM = 30;  // farthest
 let cameraZ = DEFAULT_ZOOM;

@@ -57,6 +57,12 @@
       </details>
     </main>
 
+    <script>
+      // Detect iframe embedding and add class for compact layout
+      if (window.self !== window.top) {
+        document.documentElement.classList.add('embedded');
+      }
+    </script>
     <script type="module" src="src/game.js"></script>
   </body>
 </html>
