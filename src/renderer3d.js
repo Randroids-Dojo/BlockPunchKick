@@ -12,6 +12,12 @@ const shakeOffset = { x: 0, y: 0 };
 let shakeDecay = 0;
 const cameraLookAt = new THREE.Vector3(0, 1.5, 0);
 
+// Zoom state — default pulled back to show full arena
+const DEFAULT_ZOOM = 18;
+const MIN_ZOOM = 8;   // closest
+const MAX_ZOOM = 30;  // farthest
+let cameraZ = DEFAULT_ZOOM;
+
 const ANIM_MAP = {
   Idle: 'Idle',
   Block: 'Standing',
@@ -44,8 +50,11 @@ export async function initScene(canvas) {
   scene = new THREE.Scene();
 
   camera = new THREE.PerspectiveCamera(40, canvas.width / canvas.height, 0.1, 100);
-  camera.position.set(0, 3.5, 12);
+  camera.position.set(0, 4.5, DEFAULT_ZOOM);
   camera.lookAt(0, 1.5, 0);
+
+  // Pinch-to-zoom on canvas
+  setupPinchZoom(canvas);
 
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setSize(canvas.width, canvas.height);
@@ -67,7 +76,7 @@ export async function initScene(canvas) {
   scene.add(dirLight2);
 
   // Ground plane
-  const groundGeo = new THREE.PlaneGeometry(16, 6);
+  const groundGeo = new THREE.PlaneGeometry(24, 12);
   const groundMat = new THREE.MeshStandardMaterial({
     color: 0x1a1a2e,
     roughness: 0.8,
@@ -79,7 +88,7 @@ export async function initScene(canvas) {
   scene.add(ground);
 
   // Grid lines on ground for visual reference
-  const gridHelper = new THREE.GridHelper(14, 28, 0x333355, 0x222244);
+  const gridHelper = new THREE.GridHelper(22, 44, 0x333355, 0x222244);
   gridHelper.position.y = 0.005;
   scene.add(gridHelper);
 
@@ -205,6 +214,39 @@ export function updateFighter(fighterId, fighter) {
   }
 }
 
+function setupPinchZoom(canvas) {
+  const pointers = new Map();
+
+  canvas.addEventListener('pointerdown', (e) => {
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      const oldDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const newPts = [...pointers.values()];
+      const newDist = Math.hypot(newPts[0].x - newPts[1].x, newPts[0].y - newPts[1].y);
+      const scale = oldDist / newDist;
+      cameraZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZ * scale));
+    } else {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+  });
+
+  const removePointer = (e) => pointers.delete(e.pointerId);
+  canvas.addEventListener('pointerup', removePointer);
+  canvas.addEventListener('pointercancel', removePointer);
+
+  // Scroll wheel zoom for desktop
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    cameraZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZ + e.deltaY * 0.01));
+  }, { passive: false });
+}
+
 export function triggerScreenShake(intensity) {
   shakeDecay = intensity;
 }
@@ -230,7 +272,8 @@ export function render3d() {
   }
 
   camera.position.x = shakeOffset.x;
-  camera.position.y = 3.5 + shakeOffset.y;
+  camera.position.y = 4.5 + shakeOffset.y;
+  camera.position.z = cameraZ;
   camera.lookAt(cameraLookAt);
 
   renderer.render(scene, camera);
