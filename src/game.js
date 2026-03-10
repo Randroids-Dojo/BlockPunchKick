@@ -32,8 +32,8 @@ const CONFIG = {
     axisResponsivenessX: 1,
     axisResponsivenessY: 0.72,
   },
-  punch: { damage: 8, range: 100, yRange: 70, hitStun: 16, blockStun: 12, pushOnHit: 28, pushOnBlock: 18 },
-  kick: { damage: 12, range: 140, yRange: 80, hitStun: 22, blockStun: 16, pushOnHit: 38, pushOnBlock: 30 },
+  punch: { damage: 14, range: 100, yRange: 70, hitStun: 20, blockStun: 12, pushOnHit: 16, pushOnBlock: 10 },
+  kick: { damage: 20, range: 140, yRange: 80, hitStun: 26, blockStun: 16, pushOnHit: 24, pushOnBlock: 18 },
   chipDamage: 1,
 };
 
@@ -144,6 +144,8 @@ function enqueueAction(fighter, action) {
 function consumeBufferedAction(fighter) {
   fighter.buffer = fighter.buffer.filter((item) => item.expires >= world.frame);
   if (!fighter.actionable() || fighter.buffer.length === 0) return;
+  // Don't consume attack actions while actively blocking
+  if (fighter.blockHeld || fighter.state === State.Block) return;
   const next = fighter.buffer.shift().action;
   if (next === 'punch') setState(fighter, State.PunchStartup);
   if (next === 'kick') setState(fighter, State.KickStartup);
@@ -165,7 +167,10 @@ function simInputForPlayer() {
       if (p.state !== State.Block) setState(p, State.Move);
     } else if (p.state === State.Move) setState(p, State.Idle);
 
-    if (p.blockHeld && p.state !== State.Block) setState(p, State.Block);
+    if (p.blockHeld && p.state !== State.Block) {
+      setState(p, State.Block);
+      p.buffer.length = 0; // Clear stale attack inputs when entering block
+    }
     if (!p.blockHeld && p.state === State.Block) setState(p, State.BlockRecovery);
   }
 }
