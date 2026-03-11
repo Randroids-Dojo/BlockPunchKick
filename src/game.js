@@ -409,6 +409,8 @@ function endRound() {
   const winner = p.health === c.health ? null : p.health > c.health ? p : c;
   if (winner) winner.roundWins++;
   ui.announcement.textContent = winner ? `${winner.id === 'player' ? 'Player' : 'CPU'} Wins Round` : 'Round Draw';
+  // Freeze both fighters so they stop looping combat animations
+  [p, c].forEach(f => { setState(f, State.Idle); f.vx = 0; f.vy = 0; f.impulseX = 0; f.impulseY = 0; f.buffer.length = 0; });
   roundLockFrames = 180;
 }
 
@@ -419,7 +421,7 @@ function resetRoundIfNeeded() {
 
   const p = world.player, c = world.cpu;
   if (p.roundWins >= CONFIG.roundWinsNeeded || c.roundWins >= CONFIG.roundWinsNeeded) {
-    ui.announcement.textContent = `${p.roundWins > c.roundWins ? 'Player' : 'CPU'} Wins Match`;
+    ui.announcement.textContent = `${p.roundWins > c.roundWins ? 'Player' : 'CPU'} Wins Match!  Tap to play again`;
     world.paused = true;
     return;
   }
@@ -430,6 +432,26 @@ function resetRoundIfNeeded() {
     f.health = CONFIG.healthMax;
     f.x = i === 0 ? 350 : 930;
     f.y = 560;
+    f.buffer.length = 0;
+    setState(f, State.Idle);
+  });
+  ui.announcement.textContent = '';
+}
+
+function resetMatch() {
+  world.round = 1;
+  world.timer = CONFIG.roundSeconds;
+  world.frame = 0;
+  world.hitStopFrames = 0;
+  world.paused = false;
+  roundLockFrames = 0;
+  [world.player, world.cpu].forEach((f, i) => {
+    f.health = CONFIG.healthMax;
+    f.roundWins = 0;
+    f.x = i === 0 ? 350 : 930;
+    f.y = 560;
+    f.vx = 0; f.vy = 0;
+    f.impulseX = 0; f.impulseY = 0;
     f.buffer.length = 0;
     setState(f, State.Idle);
   });
@@ -466,7 +488,14 @@ function render() {
 }
 
 function step() {
-  if (world.paused) return;
+  if (world.paused) {
+    // Any attack/block input restarts the match
+    if (world.input.punch || world.input.kick || world.input.block) {
+      world.input.punch = false; world.input.kick = false; world.input.block = false;
+      resetMatch();
+    }
+    return;
+  }
   world.frame++;
   if (world.hitStopFrames > 0) {
     world.hitStopFrames--;
