@@ -6,6 +6,38 @@ Our game uses a single **GLB model** (`assets/RobotExpressive.glb`) loaded via *
 
 This document researches how we can **create entirely new animations** (e.g. a 360-degree head spin on death) using only CLI tools in a headless cloud environment — no desktop GUI needed.
 
+## Verified Environment Availability (Tested in Claude Code Online)
+
+| Tool | Available? | Install Method | Notes |
+|------|-----------|---------------|-------|
+| **Node.js v22 + npm** | YES | Pre-installed | Used for glTF Transform |
+| **glTF Transform CLI + API** | YES | `npm install @gltf-transform/cli @gltf-transform/core` | Full read/write/inspect of GLB. **Created HeadSpin animation successfully.** |
+| **Blender bpy (Python module)** | YES | `pip3 install bpy` (installs Blender 5.0.1) | Full armature access, keyframing, glTF export. **Created HeadSpin animation successfully.** |
+| **Blender standalone** | NO | `apt-get install blender` fails (no sudo/apt in sandbox) | Use `bpy` Python module instead |
+| **Rust / Cargo** | YES | Pre-installed (cargo 1.93) | Could install gltfgen, but not needed for skeletal animation |
+| **Python 3.11** | YES | Pre-installed | Used for Blender bpy scripts |
+
+### Test Results
+
+Both working approaches were validated end-to-end:
+
+1. **glTF Transform** (`tools/create-headspin-gltf-transform.mjs`): Read the GLB, found the Head bone by traversing the node hierarchy, injected a 360° Y-rotation animation with 5 quaternion keyframes over 1 second, wrote back to GLB. Output file (439KB) preserved all 14 original animations plus the new "HeadSpin" as animation #14.
+
+2. **Blender bpy** (`tools/create-headspin-blender.py`): Imported the GLB, found the RobotArmature with 43 bones, created a new Action with 31 keyframes of euler Y-rotation, pushed to NLA track, exported via `bpy.ops.export_scene.gltf()`. Output (742KB, larger due to force-sampling all bones) included HeadSpin as a fully baked animation.
+
+### Model Skeleton (43 joints)
+```
+Bone (root) → Foot.L, Body, PoleTarget.L, Foot.R, PoleTarget.R
+  Body → Torso, Hips → Abdomen → Torso → Neck → Head
+                                       → Shoulder.L → UpperArm.L → LowerArm.L → [hand bones]
+                                       → Shoulder.R → UpperArm.R → LowerArm.R → [hand bones]
+       → UpperLeg.L → LowerLeg.L
+       → UpperLeg.R → LowerLeg.R
+```
+
+### Existing Animations in RobotExpressive.glb (14 clips)
+Dance, Death, Idle, Jump, No, Punch, Running, Sitting, Standing, ThumbsUp, Walking, WalkJump, Wave, Yes
+
 ---
 
 ## Option 1: Blender Headless (Best for Complex Animations)

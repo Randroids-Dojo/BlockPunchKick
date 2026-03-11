@@ -1,0 +1,22 @@
+{
+  "name": "blockpunchkick",
+  "version": "1.0.0",
+  "description": "A web prototype implementation of the **Block Punch Kick** game design: fixed-step side-fighter combat with only three core actions (Block, Punch, Kick), AI opponent behavior, and best-of-3 round rules.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:33099/git/Randroids-Dojo/BlockPunchKick"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@gltf-transform/cli": "^4.3.0",
+    "@gltf-transform/core": "^4.3.0",
+    "@gltf-transform/extensions": "^4.3.0",
+    "@gltf-transform/functions": "^4.3.0"
+  }
+}
