@@ -222,7 +222,7 @@ function simAI() {
 
   // Reactive block when player telegraphs an attack
   ai.blockHeld = false;
-  if ((player.state === State.PunchStartup || player.state === State.KickStartup) && distance < 160 && aiCooldown <= 0) {
+  if ((player.state === State.PunchStartup || player.state === State.KickStartup) && distance < 420 && aiCooldown <= 0) {
     ai.blockHeld = Math.random() < 0.7;
     if (ai.blockHeld) setState(ai, State.Block);
     aiCooldown = 10;
@@ -232,12 +232,12 @@ function simAI() {
   // Pick a new movement plan when the current one expires
   if (aiMoveTimer <= 0 && aiIdleTimer <= 0) {
     const roll = Math.random();
-    if (distance > 250) {
+    if (distance > 500) {
       // Far away — usually approach, sometimes wait
       aiMoveDir = roll < 0.7 ? 1 : 0;
       aiMoveTimer = 40 + Math.floor(Math.random() * 50);
-    } else if (distance < 100) {
-      // Too close — back off or idle
+    } else if (distance < 340) {
+      // At minimum separation — back off or hold ground
       aiMoveDir = roll < 0.6 ? -1 : 0;
       aiMoveTimer = 30 + Math.floor(Math.random() * 40);
     } else {
@@ -263,7 +263,7 @@ function simAI() {
   }
 
   // Attack decision — only when in range, idle, and cooldown expired
-  if (distance > 80 && distance < 160 && aiCooldown <= 0 && aiMoveDir >= 0) {
+  if (distance < 420 && aiCooldown <= 0 && aiMoveDir >= 0) {
     if (Math.random() < 0.5) {
       enqueueAction(ai, Math.random() < 0.55 ? 'punch' : 'kick');
     }
