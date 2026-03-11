@@ -325,13 +325,13 @@ export function updateFighter(fighterId, fighter) {
       currentAction.timeScale = 2.0;
     } else if (fighter.state === 'Kick_Startup') {
       // Play the chamber portion (0 → 0.15s of the clip)
-      currentAction.timeScale = 1.0;
+      currentAction.timeScale = fighter.isCharged ? 0.7 : 1.0;
     } else if (fighter.state === 'Kick_Active') {
       // Freeze at full leg extension
       currentAction.timeScale = 0;
       currentAction.time = 0.25;
     } else if (fighter.state.includes('Startup')) {
-      currentAction.timeScale = 1.5;
+      currentAction.timeScale = fighter.isCharged ? 1.0 : 1.5;
     } else if (fighter.state.includes('Recovery')) {
       currentAction.timeScale = 0.5;
     } else if (fighter.state === 'Move') {
@@ -387,11 +387,25 @@ export function updateFighter(fighterId, fighter) {
     }
   }
 
-  // Hit flash effect (uses cached mesh references)
+  // Charge glow + hit flash effect (uses cached mesh references)
   const meshes = meshCache[fighterId];
   if (meshes) {
+    const charging = fighter.chargeType !== null && fighter.chargeFrames > 4;
+    const chargeProgress = charging ? Math.min(1, fighter.chargeFrames / 24) : 0;
+    const inChargedAttack = fighter.isCharged && (fighter.state.includes('Startup') || fighter.state.includes('Active'));
+
     for (const mesh of meshes) {
-      mesh.material.emissiveIntensity = 0;
+      if (charging) {
+        const pulse = 0.5 + 0.5 * Math.sin(fighter.chargeFrames * 0.4);
+        mesh.material.emissive.setHex(fighter.chargeType === 'punch' ? 0xffaa00 : 0x00aaff);
+        mesh.material.emissiveIntensity = chargeProgress * 0.8 * pulse;
+      } else if (inChargedAttack) {
+        const isPunch = fighter.state.includes('Punch');
+        mesh.material.emissive.setHex(isPunch ? 0xffaa00 : 0x00aaff);
+        mesh.material.emissiveIntensity = 1.2;
+      } else {
+        mesh.material.emissiveIntensity = 0;
+      }
     }
   }
 }
