@@ -420,9 +420,9 @@ export function render3d() {
 
   const delta = clock.getDelta();
 
-  // Update animation mixers
-  if (mixers.player) mixers.player.update(delta);
-  if (mixers.cpu) mixers.cpu.update(delta);
+  // Update animation mixers (skip when KO animation is fully done — freeze on last frame)
+  if (mixers.player && koPhase.player !== 'done') mixers.player.update(delta);
+  if (mixers.cpu && koPhase.cpu !== 'done') mixers.cpu.update(delta);
 
   // Screen shake
   if (shakeDecay > 0) {
