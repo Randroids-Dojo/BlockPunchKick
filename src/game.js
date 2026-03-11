@@ -32,8 +32,8 @@ const CONFIG = {
     axisResponsivenessX: 1,
     axisResponsivenessY: 0.72,
   },
-  punch: { damage: 14, range: 340, proximityRange: 390, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 600 },
-  kick: { damage: 20, range: 360, proximityRange: 415, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 500 },
+  punch: { damage: 14, range: 340, proximityRange: 480, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 600 },
+  kick: { damage: 20, range: 360, proximityRange: 510, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 500 },
   chipDamage: 5,
 };
 
@@ -190,7 +190,9 @@ function isProximityThreat(attacker, defender) {
   if (!isPunch && !isKick) return false;
 
   const move = isPunch ? CONFIG.punch : CONFIG.kick;
-  const dx = (defender.x - attacker.x) * attacker.facing;
+  // Use projected position: account for lunge momentum closing distance during startup
+  const projectedAx = attacker.x + (attacker.impulseX + attacker.vx) * DT * 3;
+  const dx = (defender.x - projectedAx) * attacker.facing;
   const dy = Math.abs(defender.y - attacker.y);
   // Proximity range check: only trigger guard when close enough for this specific attack
   return dx > 0 && dx <= move.proximityRange && dy <= move.yRange;
