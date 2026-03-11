@@ -34,7 +34,7 @@ const CONFIG = {
   },
   punch: { damage: 14, range: 340, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 600 },
   kick: { damage: 20, range: 360, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 500 },
-  chipDamage: 1,
+  chipDamage: 5,
 };
 
 const State = {
@@ -341,7 +341,7 @@ function tryHit(attacker, defender, move, isKick) {
 
   const blocked = defender.state === State.Block || defender.state === State.BlockStun;
   if (blocked) {
-    // Blocking absorbs all damage (no chip)
+    defender.health = Math.max(0, defender.health - CONFIG.chipDamage);
     setState(defender, State.BlockStun); defender.stunFrames = move.blockStun;
     attacker.impulseX -= attacker.facing * move.pushOnBlock * 28;
     defender.impulseX += attacker.facing * move.pushOnBlock * 18;
