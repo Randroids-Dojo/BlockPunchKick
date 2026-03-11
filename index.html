@@ -38,18 +38,19 @@
 
       <canvas id="arena" width="1280" height="720" aria-label="Block Punch Kick arena"></canvas>
 
-      <section class="mobile-controls" aria-label="Mobile controls">
-        <div id="dpad-zone" class="dpad-zone">
-          <div id="dpad" class="dpad hidden">
-            <div class="dpad-knob"></div>
-          </div>
+      <!-- Floating joystick: covers the left half of the viewport -->
+      <div id="stick-zone" class="stick-zone">
+        <div id="stick" class="stick hidden">
+          <div class="stick-knob"></div>
         </div>
-        <div class="action-buttons">
-          <button id="block-btn" class="btn block">Block</button>
-          <button id="punch-btn" class="btn punch">Punch</button>
-          <button id="kick-btn" class="btn kick">Kick</button>
-        </div>
-      </section>
+      </div>
+
+      <!-- Fixed action buttons: always visible on the right side -->
+      <div class="action-buttons-fixed">
+        <button id="block-btn" class="btn block">Block</button>
+        <button id="punch-btn" class="btn punch">Punch</button>
+        <button id="kick-btn" class="btn kick">Kick</button>
+      </div>
 
       <details class="help">
         <summary>Controls</summary>

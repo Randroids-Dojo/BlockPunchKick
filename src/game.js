@@ -90,7 +90,7 @@ function setInput(key, val) {
 }
 
 function setupMobileControls() {
-  // Hold-to-repeat for all action buttons (block, punch, kick)
+  // Hold-to-repeat for action buttons
   const bindHold = (id, field) => {
     const el = document.getElementById(id);
     let repeatInterval = null;
@@ -114,25 +114,53 @@ function setupMobileControls() {
   bindHold('punch-btn', 'punch');
   bindHold('kick-btn', 'kick');
 
-  const zone = document.getElementById('dpad-zone');
-  const pad = document.getElementById('dpad');
+  // Floating joystick — left half of screen
+  const zone = document.getElementById('stick-zone');
+  const stick = document.getElementById('stick');
+  const knob = stick.querySelector('.stick-knob');
   let origin = null;
+  const DEAD = 18;   // dead-zone radius in px
+  const MAX = 55;    // max knob travel radius
+
   const resetMove = () => { world.input.left = world.input.right = world.input.up = world.input.down = false; };
+
   zone.addEventListener('pointerdown', (e) => {
-    origin = { x: e.offsetX, y: e.offsetY };
-    pad.classList.remove('hidden');
-    pad.style.left = `${origin.x}px`; pad.style.top = `${origin.y}px`;
+    e.preventDefault();
+    origin = { x: e.clientX, y: e.clientY };
+    stick.classList.remove('hidden');
+    stick.style.left = `${e.clientX}px`;
+    stick.style.top = `${e.clientY}px`;
+    knob.style.transform = 'translate(-50%,-50%)';
     zone.setPointerCapture(e.pointerId);
   });
+
   zone.addEventListener('pointermove', (e) => {
     if (!origin) return;
-    const dx = e.offsetX - origin.x, dy = e.offsetY - origin.y;
+    const dx = e.clientX - origin.x;
+    const dy = e.clientY - origin.y;
     resetMove();
-    if (dx < -15) world.input.left = true; if (dx > 15) world.input.right = true;
-    if (dy < -15) world.input.up = true; if (dy > 15) world.input.down = true;
+    if (dx < -DEAD) world.input.left = true;
+    if (dx > DEAD) world.input.right = true;
+    if (dy < -DEAD) world.input.up = true;
+    if (dy > DEAD) world.input.down = true;
+
+    // Move knob visual, clamped to max radius
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const clamp = Math.min(dist, MAX);
+    const angle = Math.atan2(dy, dx);
+    const kx = Math.cos(angle) * clamp;
+    const ky = Math.sin(angle) * clamp;
+    knob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
   });
-  zone.addEventListener('pointerup', () => { origin = null; resetMove(); pad.classList.add('hidden'); });
-  zone.addEventListener('pointercancel', () => { origin = null; resetMove(); pad.classList.add('hidden'); });
+
+  const release = () => {
+    origin = null;
+    resetMove();
+    stick.classList.add('hidden');
+    knob.style.transform = 'translate(-50%,-50%)';
+  };
+  zone.addEventListener('pointerup', release);
+  zone.addEventListener('pointercancel', release);
 }
 setupMobileControls();
 
