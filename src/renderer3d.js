@@ -236,12 +236,19 @@ export function updateFighter(fighterId, fighter) {
     }
   }
 
-  // HeadSpin overlay — activate when hit
+  // HeadSpin overlay — activate only on KO (2 full rotations)
   const hs = headSpinActions[fighterId];
   if (hs) {
-    const wantSpin = fighter.state === 'Hit_Stun' || fighter.state === 'KO';
+    const wantSpin = fighter.state === 'KO';
+    if (wantSpin && hs.getEffectiveWeight() === 0) {
+      // Starting a new KO spin — reset and play 2 loops
+      hs.reset();
+      hs.setLoop(THREE.LoopRepeat, 2);
+      hs.clampWhenFinished = true;
+      hs.timeScale = 1.0;
+      hs.play();
+    }
     hs.setEffectiveWeight(wantSpin ? 1 : 0);
-    if (wantSpin) hs.timeScale = 0.65;
   }
 
   // Hit flash effect (uses cached mesh references)
