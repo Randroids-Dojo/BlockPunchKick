@@ -40,55 +40,98 @@ const BLEND_TIME = 0.08;
 
 // Build a procedural front-kick AnimationClip from bone quaternion keyframes.
 // The robot kicks with its right leg: chamber (knee up) -> extend -> retract.
+// Bone names are sanitized (dots stripped) to match THREE.js PropertyBinding.
+// Keyframe values are ABSOLUTE bone-local quaternions matching the skeleton's rest pose.
 function createKickClip() {
-  const q = (x, y, z, w) => [x, y, z, w];
-  const identity = q(0, 0, 0, 1);
+  // Quaternion multiply: a * b (Hamilton product)
+  function qMul(a, b) {
+    return [
+      a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1],
+      a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0],
+      a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3],
+      a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2],
+    ];
+  }
 
-  // Keyframe times: chamber, extend, hold, retract
-  const times = [0, 0.15, 0.25, 0.35, 0.5];
-
-  // Helper: rotation around X axis (pitch forward/back)
-  const rx = (deg) => {
+  // Rotation around X axis (in radians from degrees)
+  function rxQuat(deg) {
     const r = deg * Math.PI / 180;
-    return q(Math.sin(r / 2), 0, 0, Math.cos(r / 2));
+    return [Math.sin(r / 2), 0, 0, Math.cos(r / 2)];
+  }
+
+  // Apply a local X-rotation delta on top of a rest quaternion: q_rest * q_delta
+  function applyRx(rest, deg) { return qMul(rest, rxQuat(deg)); }
+
+  // Rest poses extracted from the RobotExpressive.glb skeleton
+  const REST = {
+    UpperLegR:  [0.9717, -0.0323, 0.1360, 0.1905],
+    LowerLegR:  [0.3503,  0.0000, 0.0000, 0.9366],
+    FootR:      [0.0000,  0.6955, 0.7185, 0.0000],
+    UpperLegL:  [0.9776,  0.0216,-0.0834, 0.1920],
+    LowerLegL:  [0.3503,  0.0000, 0.0000, 0.9366],
+    Torso:      [0.0583,  0.0000, 0.0000, 0.9983],
+    Hips:       [-0.1190, 0.0000, 0.0000, 0.9929],
   };
 
-  // Bone names must use sanitized names (dots stripped) to match THREE.js PropertyBinding
+  // Keyframe times: rest, chamber, extend, hold, retract
+  const times = [0, 0.15, 0.25, 0.35, 0.5];
+
   const tracks = [
-    // Right upper leg: chamber up then extend forward
-    new THREE.QuaternionKeyframeTrack(
-      'UpperLegR.quaternion', times,
-      [...identity, ...rx(-90), ...rx(-70), ...rx(-70), ...identity]
-    ),
-    // Right lower leg: bend at knee for chamber, straighten on extend
-    new THREE.QuaternionKeyframeTrack(
-      'LowerLegR.quaternion', times,
-      [...identity, ...rx(110), ...rx(10), ...rx(10), ...identity]
-    ),
+    // Right upper leg: raise thigh for chamber, then extend forward
+    new THREE.QuaternionKeyframeTrack('UpperLegR.quaternion', times, [
+      ...REST.UpperLegR,
+      ...applyRx(REST.UpperLegR, -70),   // chamber: knee up
+      ...applyRx(REST.UpperLegR, -85),   // extend: leg forward
+      ...applyRx(REST.UpperLegR, -85),   // hold
+      ...REST.UpperLegR,                  // retract
+    ]),
+    // Right lower leg: bend knee for chamber, straighten on extend
+    new THREE.QuaternionKeyframeTrack('LowerLegR.quaternion', times, [
+      ...REST.LowerLegR,
+      ...applyRx(REST.LowerLegR, 60),    // chamber: knee bent
+      ...applyRx(REST.LowerLegR, -30),   // extend: leg straight
+      ...applyRx(REST.LowerLegR, -30),   // hold
+      ...REST.LowerLegR,                  // retract
+    ]),
     // Right foot: flex for impact
-    new THREE.QuaternionKeyframeTrack(
-      'FootR.quaternion', times,
-      [...identity, ...rx(-20), ...rx(25), ...rx(25), ...identity]
-    ),
+    new THREE.QuaternionKeyframeTrack('FootR.quaternion', times, [
+      ...REST.FootR,
+      ...applyRx(REST.FootR, -15),
+      ...applyRx(REST.FootR, 20),
+      ...applyRx(REST.FootR, 20),
+      ...REST.FootR,
+    ]),
     // Left leg (plant): slight bend for stability
-    new THREE.QuaternionKeyframeTrack(
-      'UpperLegL.quaternion', times,
-      [...identity, ...rx(-10), ...rx(-10), ...rx(-10), ...identity]
-    ),
-    new THREE.QuaternionKeyframeTrack(
-      'LowerLegL.quaternion', times,
-      [...identity, ...rx(15), ...rx(15), ...rx(15), ...identity]
-    ),
+    new THREE.QuaternionKeyframeTrack('UpperLegL.quaternion', times, [
+      ...REST.UpperLegL,
+      ...applyRx(REST.UpperLegL, -8),
+      ...applyRx(REST.UpperLegL, -8),
+      ...applyRx(REST.UpperLegL, -8),
+      ...REST.UpperLegL,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerLegL.quaternion', times, [
+      ...REST.LowerLegL,
+      ...applyRx(REST.LowerLegL, 12),
+      ...applyRx(REST.LowerLegL, 12),
+      ...applyRx(REST.LowerLegL, 12),
+      ...REST.LowerLegL,
+    ]),
     // Torso: lean back slightly during kick
-    new THREE.QuaternionKeyframeTrack(
-      'Torso.quaternion', times,
-      [...identity, ...rx(10), ...rx(15), ...rx(15), ...identity]
-    ),
-    // Hips: tilt forward to sell the kick
-    new THREE.QuaternionKeyframeTrack(
-      'Hips.quaternion', times,
-      [...identity, ...rx(5), ...rx(-5), ...rx(-5), ...identity]
-    ),
+    new THREE.QuaternionKeyframeTrack('Torso.quaternion', times, [
+      ...REST.Torso,
+      ...applyRx(REST.Torso, 10),
+      ...applyRx(REST.Torso, 15),
+      ...applyRx(REST.Torso, 15),
+      ...REST.Torso,
+    ]),
+    // Hips: tilt to sell the kick
+    new THREE.QuaternionKeyframeTrack('Hips.quaternion', times, [
+      ...REST.Hips,
+      ...applyRx(REST.Hips, 5),
+      ...applyRx(REST.Hips, -5),
+      ...applyRx(REST.Hips, -5),
+      ...REST.Hips,
+    ]),
   ];
 
   return new THREE.AnimationClip('Kick', 0.5, tracks);
