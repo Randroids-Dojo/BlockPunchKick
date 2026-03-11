@@ -1,4 +1,4 @@
-import { initScene, updateFighter, triggerScreenShake, render3d } from './renderer3d.js';
+import { initScene, updateFighter, triggerScreenShake, render3d, koPhase } from './renderer3d.js';
 
 const TICK_RATE = 120;
 const DT = 1 / TICK_RATE;
@@ -454,10 +454,24 @@ function endRound() {
   roundLockFrames = 180;
 }
 
+function koAnimationDone() {
+  // Check that all KO'd fighters have finished their full animation sequence
+  const fighters = [world.player, world.cpu];
+  for (const f of fighters) {
+    if (f.state === State.KO && koPhase[f.id] !== 'done') return false;
+  }
+  return true;
+}
+
 function resetRoundIfNeeded() {
   if (roundLockFrames <= 0) return;
   roundLockFrames--;
-  if (roundLockFrames !== 0) return;
+  // Don't transition until KO animation is fully done (and at least 60 frames for announcement)
+  if (roundLockFrames > 0 || !koAnimationDone()) {
+    // Keep waiting — re-increment so lock stays active
+    if (roundLockFrames <= 0) roundLockFrames = 1;
+    return;
+  }
 
   const p = world.player, c = world.cpu;
   if (p.roundWins >= CONFIG.roundWinsNeeded || c.roundWins >= CONFIG.roundWinsNeeded) {
@@ -539,6 +553,14 @@ function step() {
     return;
   }
   world.frame++;
+
+  // During round-end lock, freeze all simulation — just wait for KO animation
+  if (roundLockFrames > 0) {
+    resetRoundIfNeeded();
+    updateHud();
+    return;
+  }
+
   if (world.hitStopFrames > 0) {
     world.hitStopFrames--;
     updateHud();
@@ -554,7 +576,6 @@ function step() {
   processStates(world.player);
   processStates(world.cpu);
   resolveCombat();
-  resetRoundIfNeeded();
   world.timer -= DT;
   updateHud();
 }

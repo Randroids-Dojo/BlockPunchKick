@@ -9,7 +9,7 @@ const actions = {};
 const currentClips = {};
 const meshCache = {};
 const headSpinActions = {};
-const koPhase = {};          // 'spin' | 'death' | null per fighter
+export const koPhase = {};   // 'spin' | 'death' | null per fighter
 const shakeOffset = { x: 0, y: 0 };
 let shakeDecay = 0;
 const cameraLookAt = new THREE.Vector3(0, 1.5, 0);
@@ -338,6 +338,13 @@ export function updateFighter(fighterId, fighter) {
           deathAction.timeScale = 1.0;
           deathAction.play();
           currentClips[fighterId] = 'Death';
+          // Signal 'done' when Death animation finishes
+          const onDeathDone = (e2) => {
+            if (e2.action !== deathAction) return;
+            mixers[fighterId].removeEventListener('finished', onDeathDone);
+            koPhase[fighterId] = 'done';
+          };
+          mixers[fighterId].addEventListener('finished', onDeathDone);
         }
       };
       mixers[fighterId].addEventListener('finished', onSpinDone);
