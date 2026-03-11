@@ -32,8 +32,8 @@ const CONFIG = {
     axisResponsivenessX: 1,
     axisResponsivenessY: 0.72,
   },
-  punch: { damage: 14, range: 100, yRange: 70, hitStun: 20, blockStun: 12, pushOnHit: 40, pushOnBlock: 22 },
-  kick: { damage: 20, range: 140, yRange: 80, hitStun: 26, blockStun: 16, pushOnHit: 60, pushOnBlock: 36 },
+  punch: { damage: 14, range: 130, yRange: 70, hitStun: 20, blockStun: 12, pushOnHit: 40, pushOnBlock: 22 },
+  kick: { damage: 20, range: 155, yRange: 80, hitStun: 26, blockStun: 16, pushOnHit: 60, pushOnBlock: 36 },
   chipDamage: 1,
 };
 
@@ -438,13 +438,13 @@ function render() {
 function step() {
   if (world.paused) return;
   world.frame++;
-  [world.player, world.cpu].forEach((f) => f.hitConfirmedThisState = false);
-
   if (world.hitStopFrames > 0) {
     world.hitStopFrames--;
     updateHud();
     return;
   }
+
+  [world.player, world.cpu].forEach((f) => f.hitConfirmedThisState = false);
 
   simInputForPlayer();
   simAI();
