@@ -32,7 +32,7 @@ const ANIM_MAP = {
   Kick_Active: 'Kick',
   Kick_Recovery: 'Kick',
   Hit_Stun: 'Idle',
-  Block_Stun: 'No',
+  Block_Stun: 'ThumbsUp',
   KO: 'Idle',  // base clip during KO; sequenced to Death after HeadSpin
 };
 
@@ -40,54 +40,86 @@ const BLEND_TIME = 0.08;
 
 // Build a procedural front-kick AnimationClip from bone quaternion keyframes.
 // The robot kicks with its right leg: chamber (knee up) -> extend -> retract.
+// Bone names are sanitized (dots stripped) to match THREE.js PropertyBinding.
+// All quaternion values are ABSOLUTE bone-local poses extracted/extrapolated from
+// the model's working animations (Idle, WalkJump) to ensure correct deformation.
 function createKickClip() {
-  const q = (x, y, z, w) => [x, y, z, w];
-  const identity = q(0, 0, 0, 1);
-
-  // Keyframe times: chamber, extend, hold, retract
-  const times = [0, 0.15, 0.25, 0.35, 0.5];
-
-  // Helper: rotation around X axis (pitch forward/back)
-  const rx = (deg) => {
-    const r = deg * Math.PI / 180;
-    return q(Math.sin(r / 2), 0, 0, Math.cos(r / 2));
+  // Idle animation first-frame poses (the starting/ending pose for blending)
+  const idle = {
+    UpperLegR: [0.9795, -0.0257, 0.1373, 0.1449],
+    LowerLegR: [0.2772, 0.0000, 0.0000, 0.9608],
+    UpperLegL: [0.9855, 0.0176, -0.0843, 0.1461],
+    LowerLegL: [0.2772, 0.0000, 0.0000, 0.9608],
   };
 
+  // Reference poses from WalkJump animation (known to look correct):
+  //   UpperLeg.R forward (t=0.500): [0.6567, -0.0318, 0.2264, 0.7187]
+  //   UpperLeg.R most forward (t=0.417): [0.7039, 0.0508, 0.3645, 0.6075]
+  //   LowerLeg.R nearly straight (t=0.333): [0.1534, 0, 0, 0.9882]
+  //   LowerLeg.R very bent (t=0.125): [0.7983, 0, 0, 0.6022]
+  //   Foot.R flexed (t=0.417): [0, 0.9310, 0.3651, 0]
+  //   Foot.R rest: [0, 0.6955, 0.7185, 0]
+
+  // Kick target poses — extrapolated beyond WalkJump range for a high front kick
+  const kick = {
+    // Chamber: knee raised high, thigh ~60° forward (between walk forward values)
+    UpperLegR_chamber: [0.7039, 0.0508, 0.3645, 0.6075],
+    // Extend: thigh horizontal, leg fully out (extrapolated beyond WalkJump max)
+    UpperLegR_extend:  [0.5000, -0.0100, 0.2800, 0.8192],
+    // Knee very bent during chamber
+    LowerLegR_chamber: [0.7983, 0.0000, 0.0000, 0.6022],
+    // Knee nearly straight during extend
+    LowerLegR_extend:  [0.0872, 0.0000, 0.0000, 0.9962],
+    // Foot flexed for impact
+    FootR_chamber:     [0.0000, 0.8145, 0.5802, 0.0000],
+    FootR_extend:      [0.0000, 0.9310, 0.3651, 0.0000],
+    // Foot rest
+    FootR_rest:        [0.0000, 0.6955, 0.7185, 0.0000],
+  };
+
+  // Keyframe times: rest, chamber, extend, hold, retract
+  const times = [0, 0.15, 0.25, 0.35, 0.5];
+
   const tracks = [
-    // Right upper leg: chamber up then extend forward
-    new THREE.QuaternionKeyframeTrack(
-      'UpperLeg.R.quaternion', times,
-      [...identity, ...rx(-90), ...rx(-70), ...rx(-70), ...identity]
-    ),
-    // Right lower leg: bend at knee for chamber, straighten on extend
-    new THREE.QuaternionKeyframeTrack(
-      'LowerLeg.R.quaternion', times,
-      [...identity, ...rx(110), ...rx(10), ...rx(10), ...identity]
-    ),
+    // Right upper leg: raise thigh for chamber, then extend forward
+    new THREE.QuaternionKeyframeTrack('UpperLegR.quaternion', times, [
+      ...idle.UpperLegR,
+      ...kick.UpperLegR_chamber,
+      ...kick.UpperLegR_extend,
+      ...kick.UpperLegR_extend,
+      ...idle.UpperLegR,
+    ]),
+    // Right lower leg: bend knee for chamber, straighten on extend
+    new THREE.QuaternionKeyframeTrack('LowerLegR.quaternion', times, [
+      ...idle.LowerLegR,
+      ...kick.LowerLegR_chamber,
+      ...kick.LowerLegR_extend,
+      ...kick.LowerLegR_extend,
+      ...idle.LowerLegR,
+    ]),
     // Right foot: flex for impact
-    new THREE.QuaternionKeyframeTrack(
-      'Foot.R.quaternion', times,
-      [...identity, ...rx(-20), ...rx(25), ...rx(25), ...identity]
-    ),
-    // Left leg (plant): slight bend for stability
-    new THREE.QuaternionKeyframeTrack(
-      'UpperLeg.L.quaternion', times,
-      [...identity, ...rx(-10), ...rx(-10), ...rx(-10), ...identity]
-    ),
-    new THREE.QuaternionKeyframeTrack(
-      'LowerLeg.L.quaternion', times,
-      [...identity, ...rx(15), ...rx(15), ...rx(15), ...identity]
-    ),
-    // Torso: lean back slightly during kick
-    new THREE.QuaternionKeyframeTrack(
-      'Torso.quaternion', times,
-      [...identity, ...rx(10), ...rx(15), ...rx(15), ...identity]
-    ),
-    // Hips: tilt forward to sell the kick
-    new THREE.QuaternionKeyframeTrack(
-      'Hips.quaternion', times,
-      [...identity, ...rx(5), ...rx(-5), ...rx(-5), ...identity]
-    ),
+    new THREE.QuaternionKeyframeTrack('FootR.quaternion', times, [
+      ...kick.FootR_rest,
+      ...kick.FootR_chamber,
+      ...kick.FootR_extend,
+      ...kick.FootR_extend,
+      ...kick.FootR_rest,
+    ]),
+    // Left leg (plant): slight forward lean for stability
+    new THREE.QuaternionKeyframeTrack('UpperLegL.quaternion', times, [
+      ...idle.UpperLegL,
+      ...idle.UpperLegL,
+      ...idle.UpperLegL,
+      ...idle.UpperLegL,
+      ...idle.UpperLegL,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerLegL.quaternion', times, [
+      ...idle.LowerLegL,
+      ...idle.LowerLegL,
+      ...idle.LowerLegL,
+      ...idle.LowerLegL,
+      ...idle.LowerLegL,
+    ]),
   ];
 
   return new THREE.AnimationClip('Kick', 0.5, tracks);
@@ -285,7 +317,7 @@ export function updateFighter(fighterId, fighter) {
   // Playback speed adjustments
   const currentAction = actions[fighterId]?.[clipName];
   if (currentAction) {
-    if (fighter.state === 'Block') {
+    if (fighter.state === 'Block' || fighter.state === 'Block_Stun') {
       // Hold at the raised-fist guard pose in the ThumbsUp animation
       currentAction.timeScale = 0;
       currentAction.time = 0.5;

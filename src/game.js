@@ -13,7 +13,7 @@ const FRAMES = {
   kickRecovery: 14,
   hitStopPunch: 7,
   hitStopKick: 10,
-  hitStopBlocked: 4,
+  hitStopBlocked: 9,
 };
 
 const CONFIG = {
@@ -32,9 +32,9 @@ const CONFIG = {
     axisResponsivenessX: 1,
     axisResponsivenessY: 0.72,
   },
-  punch: { damage: 14, range: 340, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 600 },
-  kick: { damage: 20, range: 360, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 500 },
-  chipDamage: 5,
+  punch: { damage: 8, range: 340, proximityRange: 480, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 600 },
+  kick: { damage: 12, range: 360, proximityRange: 510, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 500 },
+  chipDamage: 1,
 };
 
 const State = {
@@ -62,7 +62,7 @@ const world = {
   frame: 0, round: 1, timer: CONFIG.roundSeconds,
   player: new Fighter('player', '#2d9bff', 350),
   cpu: new Fighter('cpu', '#ff5353', 930),
-  input: { left: false, right: false, up: false, down: false, block: false, punch: false, kick: false },
+  input: { left: false, right: false, up: false, down: false, punch: false, kick: false },
   hitStopFrames: 0, paused: false,
 };
 
@@ -77,7 +77,7 @@ const ui = {
 
 const keyMap = {
   ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right', ArrowUp: 'up', w: 'up', ArrowDown: 'down', s: 'down',
-  Shift: 'block', j: 'block', k: 'punch', l: 'kick',
+  k: 'punch', l: 'kick',
 };
 window.addEventListener('keydown', (e) => setInput(e.key, true));
 window.addEventListener('keyup', (e) => setInput(e.key, false));
@@ -110,7 +110,6 @@ function setupMobileControls() {
     el.addEventListener('pointercancel', stop);
     el.addEventListener('pointerleave', stop);
   };
-  bindHold('block-btn', 'block');
   bindHold('punch-btn', 'punch');
   bindHold('kick-btn', 'kick');
 
@@ -181,27 +180,44 @@ function consumeBufferedAction(fighter) {
 
 function setState(f, next) { f.state = next; f.stateFrame = 0; }
 
+// SF2-style proximity guard: returns true if attacker is a threat that should trigger block.
+// Only startup + active frames count as threatening (NOT recovery).
+// Defender must be within the attack's proximity range (slightly larger than hit range).
+function isProximityThreat(attacker, defender) {
+  const isPunch = attacker.state === State.PunchStartup || attacker.state === State.PunchActive;
+  const isKick = attacker.state === State.KickStartup || attacker.state === State.KickActive;
+  if (!isPunch && !isKick) return false;
+
+  const move = isPunch ? CONFIG.punch : CONFIG.kick;
+  // Use projected position: account for lunge momentum closing distance during startup
+  const projectedAx = attacker.x + (attacker.impulseX + attacker.vx) * DT * 3;
+  const dx = (defender.x - projectedAx) * attacker.facing;
+  const dy = Math.abs(defender.y - attacker.y);
+  // Proximity range check: only trigger guard when close enough for this specific attack
+  return dx > 0 && dx <= move.proximityRange && dy <= move.yRange;
+}
+
 function simInputForPlayer() {
   const p = world.player, c = world.cpu;
-  p.blockHeld = world.input.block;
+  p.blockHeld = false;
   if (world.input.punch) enqueueAction(p, 'punch');
   if (world.input.kick) enqueueAction(p, 'kick');
   world.input.punch = false; world.input.kick = false;
 
-  // Street Fighter style auto-block: holding back while enemy is attacking
+  // SF2-style proximity guard: holding back while enemy is threatening triggers block.
+  // "Threatening" = startup or active frames AND within proximity range of the attack.
+  // During recovery frames or outside range, holding back walks backward normally.
   const holdingBack = (p.facing === 1 && world.input.left && !world.input.right) ||
                       (p.facing === -1 && world.input.right && !world.input.left);
-  const enemyAttacking = c.state === State.PunchStartup || c.state === State.PunchActive || c.state === State.PunchRecovery ||
-                         c.state === State.KickStartup || c.state === State.KickActive || c.state === State.KickRecovery;
-  const autoBlock = holdingBack && enemyAttacking;
-  if (autoBlock) p.blockHeld = true;
+  const proximityGuard = holdingBack && isProximityThreat(c, p);
+  if (proximityGuard) p.blockHeld = true;
 
   if (p.actionable()) {
     p.axisX = (world.input.right ? 1 : 0) - (world.input.left ? 1 : 0);
     p.axisY = (world.input.down ? 1 : 0) - (world.input.up ? 1 : 0);
 
-    // Suppress backward movement during auto-block so player holds ground
-    if (autoBlock) p.axisX = 0;
+    // Suppress backward movement during proximity guard so player holds ground
+    if (proximityGuard) p.axisX = 0;
 
     if (p.axisX || p.axisY) {
       if (p.state !== State.Block) setState(p, State.Move);
@@ -248,10 +264,10 @@ function simAI() {
   const effectiveAggro = Math.min(1, aiAggression + (healthRatio > 1.3 ? 0.15 : healthRatio < 0.7 ? -0.2 : 0));
 
   // Reaction to player attacks — mix of block, counter-attack, and getting hit
+  // Uses the same proximity guard threat detection as the player
   ai.blockHeld = false;
-  const playerAttacking = player.state === State.PunchStartup || player.state === State.KickStartup ||
-                          player.state === State.PunchActive || player.state === State.KickActive;
-  if (playerAttacking && distance < 420 && aiCooldown <= 0) {
+  const playerThreatening = isProximityThreat(player, ai);
+  if (playerThreatening && aiCooldown <= 0) {
     const roll = Math.random();
     if (roll < 0.35 * (1 - effectiveAggro)) {
       // Block
@@ -546,8 +562,8 @@ function render() {
 function step() {
   if (world.paused) {
     // Any attack/block input restarts the match
-    if (world.input.punch || world.input.kick || world.input.block) {
-      world.input.punch = false; world.input.kick = false; world.input.block = false;
+    if (world.input.punch || world.input.kick) {
+      world.input.punch = false; world.input.kick = false;
       resetMatch();
     }
     return;
