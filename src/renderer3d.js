@@ -26,9 +26,9 @@ const ANIM_MAP = {
   Punch_Startup: 'Punch',
   Punch_Active: 'Punch',
   Punch_Recovery: 'Punch',
-  Kick_Startup: 'Dance',
-  Kick_Active: 'Dance',
-  Kick_Recovery: 'Dance',
+  Kick_Startup: 'WalkJump',
+  Kick_Active: 'WalkJump',
+  Kick_Recovery: 'WalkJump',
   Hit_Stun: 'Death',
   Block_Stun: 'No',
   KO: 'Death',
@@ -199,8 +199,12 @@ export function updateFighter(fighterId, fighter) {
       currentAction.time = 0.15;
     } else if (fighter.state === 'Block_Recovery') {
       currentAction.timeScale = 2.0;
+    } else if (fighter.state === 'Kick_Startup') {
+      currentAction.timeScale = 2.5;
     } else if (fighter.state === 'Kick_Active') {
-      currentAction.timeScale = 2.0;
+      // Freeze at the extended leg pose for a visible kick impact frame
+      currentAction.timeScale = 0;
+      currentAction.time = 0.4;
     } else if (fighter.state.includes('Startup')) {
       currentAction.timeScale = 1.5;
     } else if (fighter.state.includes('Recovery')) {
