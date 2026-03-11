@@ -82,8 +82,8 @@ const anim = doc.createAnimation('HeadSpin')
 
 console.log(`Created animation "${anim.getName()}" with 5 keyframes over 1 second`);
 
-// Write to a test output file (don't overwrite the original)
-const outPath = 'assets/RobotExpressive_test_headspin.glb';
+// Write back to the original GLB (adding the new animation in-place)
+const outPath = process.argv[2] || 'assets/RobotExpressive.glb';
 await io.write(outPath, doc);
 console.log(`Written to ${outPath}`);
 

@@ -31,7 +31,7 @@ const ANIM_MAP = {
   Kick_Recovery: 'WalkJump',
   Hit_Stun: 'Death',
   Block_Stun: 'No',
-  KO: 'Death',
+  KO: 'HeadSpin',
 };
 
 const BLEND_TIME = 0.08;
