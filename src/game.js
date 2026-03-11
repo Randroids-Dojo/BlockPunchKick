@@ -11,9 +11,9 @@ const FRAMES = {
   kickStartup: 8,
   kickActive: 4,
   kickRecovery: 14,
-  hitStopPunch: 5,
-  hitStopKick: 7,
-  hitStopBlocked: 3,
+  hitStopPunch: 7,
+  hitStopKick: 10,
+  hitStopBlocked: 4,
 };
 
 const CONFIG = {
@@ -26,15 +26,15 @@ const CONFIG = {
     airBrake: 20,
     maxSpeedX: 280,
     maxSpeedY: 210,
-    pushSeparation: 58,
+    pushSeparation: 320,
     wallBounceDamping: 0.18,
-    impulseDamping: 18,
+    impulseDamping: 10,
     axisResponsivenessX: 1,
     axisResponsivenessY: 0.72,
   },
-  punch: { damage: 8, range: 100, yRange: 70, hitStun: 16, blockStun: 12, pushOnHit: 28, pushOnBlock: 18 },
-  kick: { damage: 12, range: 140, yRange: 80, hitStun: 22, blockStun: 16, pushOnHit: 38, pushOnBlock: 30 },
-  chipDamage: 1,
+  punch: { damage: 14, range: 340, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 600 },
+  kick: { damage: 20, range: 360, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 500 },
+  chipDamage: 5,
 };
 
 const State = {
@@ -90,7 +90,7 @@ function setInput(key, val) {
 }
 
 function setupMobileControls() {
-  // Hold-to-repeat for all action buttons (block, punch, kick)
+  // Hold-to-repeat for action buttons
   const bindHold = (id, field) => {
     const el = document.getElementById(id);
     let repeatInterval = null;
@@ -114,25 +114,53 @@ function setupMobileControls() {
   bindHold('punch-btn', 'punch');
   bindHold('kick-btn', 'kick');
 
-  const zone = document.getElementById('dpad-zone');
-  const pad = document.getElementById('dpad');
+  // Floating joystick — left half of screen
+  const zone = document.getElementById('stick-zone');
+  const stick = document.getElementById('stick');
+  const knob = stick.querySelector('.stick-knob');
   let origin = null;
+  const DEAD = 18;   // dead-zone radius in px
+  const MAX = 55;    // max knob travel radius
+
   const resetMove = () => { world.input.left = world.input.right = world.input.up = world.input.down = false; };
+
   zone.addEventListener('pointerdown', (e) => {
-    origin = { x: e.offsetX, y: e.offsetY };
-    pad.classList.remove('hidden');
-    pad.style.left = `${origin.x}px`; pad.style.top = `${origin.y}px`;
+    e.preventDefault();
+    origin = { x: e.clientX, y: e.clientY };
+    stick.classList.remove('hidden');
+    stick.style.left = `${e.clientX}px`;
+    stick.style.top = `${e.clientY}px`;
+    knob.style.transform = 'translate(-50%,-50%)';
     zone.setPointerCapture(e.pointerId);
   });
+
   zone.addEventListener('pointermove', (e) => {
     if (!origin) return;
-    const dx = e.offsetX - origin.x, dy = e.offsetY - origin.y;
+    const dx = e.clientX - origin.x;
+    const dy = e.clientY - origin.y;
     resetMove();
-    if (dx < -15) world.input.left = true; if (dx > 15) world.input.right = true;
-    if (dy < -15) world.input.up = true; if (dy > 15) world.input.down = true;
+    if (dx < -DEAD) world.input.left = true;
+    if (dx > DEAD) world.input.right = true;
+    if (dy < -DEAD) world.input.up = true;
+    if (dy > DEAD) world.input.down = true;
+
+    // Move knob visual, clamped to max radius
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const clamp = Math.min(dist, MAX);
+    const angle = Math.atan2(dy, dx);
+    const kx = Math.cos(angle) * clamp;
+    const ky = Math.sin(angle) * clamp;
+    knob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
   });
-  zone.addEventListener('pointerup', () => { origin = null; resetMove(); pad.classList.add('hidden'); });
-  zone.addEventListener('pointercancel', () => { origin = null; resetMove(); pad.classList.add('hidden'); });
+
+  const release = () => {
+    origin = null;
+    resetMove();
+    stick.classList.add('hidden');
+    knob.style.transform = 'translate(-50%,-50%)';
+  };
+  zone.addEventListener('pointerup', release);
+  zone.addEventListener('pointercancel', release);
 }
 setupMobileControls();
 
@@ -144,6 +172,8 @@ function enqueueAction(fighter, action) {
 function consumeBufferedAction(fighter) {
   fighter.buffer = fighter.buffer.filter((item) => item.expires >= world.frame);
   if (!fighter.actionable() || fighter.buffer.length === 0) return;
+  // Don't consume attack actions while actively blocking
+  if (fighter.blockHeld || fighter.state === State.Block) return;
   const next = fighter.buffer.shift().action;
   if (next === 'punch') setState(fighter, State.PunchStartup);
   if (next === 'kick') setState(fighter, State.KickStartup);
@@ -165,41 +195,107 @@ function simInputForPlayer() {
       if (p.state !== State.Block) setState(p, State.Move);
     } else if (p.state === State.Move) setState(p, State.Idle);
 
-    if (p.blockHeld && p.state !== State.Block) setState(p, State.Block);
+    if (p.blockHeld && p.state !== State.Block) {
+      setState(p, State.Block);
+      p.buffer.length = 0; // Clear stale attack inputs when entering block
+    }
     if (!p.blockHeld && p.state === State.Block) setState(p, State.BlockRecovery);
   }
 }
 
 let aiCooldown = 0;
+// AI movement plan: the AI commits to a movement direction for a set duration
+let aiMoveTimer = 0;    // frames left in current movement plan
+let aiMoveDir = 0;      // -1 = retreat, 0 = idle, 1 = approach
+let aiIdleTimer = 60;   // frames to idle before next decision
+
+// AI personality shifts over the fight to stay unpredictable
+let aiAggression = 0.5; // 0 = defensive, 1 = aggressive
+let aiPersonalityTimer = 0;
+
 function simAI() {
   const ai = world.cpu, player = world.player;
   aiCooldown--;
+  aiMoveTimer--;
+  aiIdleTimer--;
   const dx = player.x - ai.x;
   const dy = player.y - ai.y;
   const distance = Math.abs(dx);
   ai.facing = dx > 0 ? 1 : -1;
   if (!ai.actionable()) return;
 
+  // Shift personality periodically — keeps the AI feeling unpredictable
+  aiPersonalityTimer--;
+  if (aiPersonalityTimer <= 0) {
+    aiAggression = 0.2 + Math.random() * 0.7; // range 0.2–0.9
+    aiPersonalityTimer = 120 + Math.floor(Math.random() * 180); // shift every 1–2.5s
+  }
+
+  // Health-aware aggression: get more aggressive when ahead, more defensive when behind
+  const healthRatio = ai.health / Math.max(1, player.health);
+  const effectiveAggro = Math.min(1, aiAggression + (healthRatio > 1.3 ? 0.15 : healthRatio < 0.7 ? -0.2 : 0));
+
+  // Reaction to player attacks — mix of block, counter-attack, and getting hit
   ai.blockHeld = false;
-  if ((player.state === State.PunchStartup || player.state === State.KickStartup) && distance < 160 && aiCooldown <= 0) {
-    ai.blockHeld = Math.random() < 0.75;
-    if (ai.blockHeld) setState(ai, State.Block);
-    aiCooldown = 8;
+  const playerAttacking = player.state === State.PunchStartup || player.state === State.KickStartup ||
+                          player.state === State.PunchActive || player.state === State.KickActive;
+  if (playerAttacking && distance < 420 && aiCooldown <= 0) {
+    const roll = Math.random();
+    if (roll < 0.35 * (1 - effectiveAggro)) {
+      // Block
+      ai.blockHeld = true;
+      setState(ai, State.Block);
+      aiCooldown = 8 + Math.floor(Math.random() * 12);
+    } else if (roll < 0.35 * (1 - effectiveAggro) + 0.4 * effectiveAggro) {
+      // Counter-attack — trade hits instead of blocking
+      enqueueAction(ai, Math.random() < 0.5 ? 'punch' : 'kick');
+      aiCooldown = 15 + Math.floor(Math.random() * 20);
+    } else {
+      // Do nothing — sometimes the AI just gets hit
+      aiCooldown = 5;
+    }
     return;
   }
 
-  if (distance > 140) {
-    ai.axisX = Math.sign(dx) * 0.75;
-    ai.axisY = Math.sign(dy) * 0.45;
+  // Pick a new movement plan when the current one expires
+  if (aiMoveTimer <= 0 && aiIdleTimer <= 0) {
+    const roll = Math.random();
+    if (distance > 500) {
+      aiMoveDir = roll < (0.5 + effectiveAggro * 0.4) ? 1 : 0;
+      aiMoveTimer = 30 + Math.floor(Math.random() * 40);
+    } else if (distance < 340) {
+      // Close: aggressive AI holds ground or advances, defensive AI retreats
+      if (roll < effectiveAggro * 0.4) aiMoveDir = 0;
+      else if (roll < 0.4 + effectiveAggro * 0.3) aiMoveDir = -1;
+      else aiMoveDir = 0;
+      aiMoveTimer = 20 + Math.floor(Math.random() * 35);
+    } else {
+      // Mid range
+      if (roll < 0.2 + effectiveAggro * 0.3) aiMoveDir = 1;
+      else if (roll < 0.5) aiMoveDir = -1;
+      else aiMoveDir = 0;
+      aiMoveTimer = 25 + Math.floor(Math.random() * 45);
+    }
+    aiIdleTimer = 10 + Math.floor(Math.random() * 20);
+  }
+
+  // Execute movement plan
+  if (aiMoveTimer > 0 && aiMoveDir !== 0) {
+    ai.axisX = Math.sign(dx) * aiMoveDir * (0.4 + effectiveAggro * 0.4);
+    ai.axisY = Math.sign(dy) * 0.25;
     setState(ai, State.Move);
   } else {
     ai.axisX = 0;
     ai.axisY = 0;
     if (ai.state === State.Move) setState(ai, State.Idle);
-    if (aiCooldown <= 0) {
+  }
+
+  // Attack decision — aggression drives frequency and timing
+  if (distance < 420 && aiCooldown <= 0) {
+    if (Math.random() < 0.3 + effectiveAggro * 0.35) {
       enqueueAction(ai, Math.random() < 0.55 ? 'punch' : 'kick');
-      aiCooldown = 18 + Math.floor(Math.random() * 14);
     }
+    aiCooldown = Math.floor(25 + (1 - effectiveAggro) * 50 + Math.random() * 30);
   }
 }
 
@@ -210,6 +306,7 @@ function processStates(f) {
       if (f.stateFrame >= FRAMES.blockRecovery) setState(f, State.Idle);
       break;
     case State.PunchStartup:
+      f.impulseX += f.facing * CONFIG.punch.lungeForce;
       if (f.stateFrame >= FRAMES.punchStartup) setState(f, State.PunchActive);
       break;
     case State.PunchActive:
@@ -219,6 +316,7 @@ function processStates(f) {
       if (f.stateFrame >= FRAMES.punchRecovery) setState(f, State.Idle);
       break;
     case State.KickStartup:
+      f.impulseX += f.facing * CONFIG.kick.lungeForce;
       if (f.stateFrame >= FRAMES.kickStartup) setState(f, State.KickActive);
       break;
     case State.KickActive:
@@ -241,12 +339,12 @@ function tryHit(attacker, defender, move, isKick) {
   const dy = Math.abs(defender.y - attacker.y);
   if (dx <= 0 || dx > move.range || dy > move.yRange) return;
 
-  const blocked = defender.state === State.Block;
+  const blocked = defender.state === State.Block || defender.state === State.BlockStun;
   if (blocked) {
     defender.health = Math.max(0, defender.health - CONFIG.chipDamage);
     setState(defender, State.BlockStun); defender.stunFrames = move.blockStun;
-    attacker.impulseX -= attacker.facing * move.pushOnBlock * 22;
-    defender.impulseX += attacker.facing * move.pushOnBlock * 14;
+    attacker.impulseX -= attacker.facing * move.pushOnBlock * 28;
+    defender.impulseX += attacker.facing * move.pushOnBlock * 18;
     world.hitStopFrames = FRAMES.hitStopBlocked;
     triggerScreenShake(4);
   } else {
@@ -255,7 +353,7 @@ function tryHit(attacker, defender, move, isKick) {
     defender.impulseX += attacker.facing * move.pushOnHit * 22;
     attacker.impulseX -= attacker.facing * move.pushOnHit * 9;
     world.hitStopFrames = isKick ? FRAMES.hitStopKick : FRAMES.hitStopPunch;
-    triggerScreenShake(isKick ? 12 : 8);
+    triggerScreenShake(isKick ? 18 : 12);
   }
 
   attacker.hitConfirmedThisState = true;
@@ -292,14 +390,22 @@ function resolveCombat() {
 
 function integrateFighterPhysics(f) {
   const physics = CONFIG.physics;
-  const movable = f.actionable() || f.state === State.BlockStun || f.state === State.HitStun;
+  // HitStun: no player control, only impulse moves the fighter
+  const inStun = f.state === State.HitStun || f.state === State.BlockStun;
+  const movable = f.actionable() && !inStun;
   const axisX = movable ? f.axisX : 0;
   const axisY = movable ? f.axisY : 0;
   const targetVX = axisX * physics.maxSpeedX * physics.axisResponsivenessX;
   const targetVY = axisY * physics.maxSpeedY * physics.axisResponsivenessY;
 
-  f.vx += (targetVX - f.vx) * Math.min(1, physics.moveAccel * DT / Math.max(1, physics.maxSpeedX));
-  f.vy += (targetVY - f.vy) * Math.min(1, physics.moveAccel * DT / Math.max(1, physics.maxSpeedY));
+  if (inStun) {
+    // Kill deliberate velocity so impulse/knockback isn't fought
+    f.vx *= Math.max(0, 1 - physics.airBrake * 2 * DT);
+    f.vy *= Math.max(0, 1 - physics.airBrake * 2 * DT);
+  } else {
+    f.vx += (targetVX - f.vx) * Math.min(1, physics.moveAccel * DT / Math.max(1, physics.maxSpeedX));
+    f.vy += (targetVY - f.vy) * Math.min(1, physics.moveAccel * DT / Math.max(1, physics.maxSpeedY));
+  }
 
   if (!axisX) f.vx *= Math.max(0, 1 - physics.airBrake * DT);
   if (!axisY) f.vy *= Math.max(0, 1 - physics.airBrake * DT);
@@ -331,6 +437,8 @@ function endRound() {
   const winner = p.health === c.health ? null : p.health > c.health ? p : c;
   if (winner) winner.roundWins++;
   ui.announcement.textContent = winner ? `${winner.id === 'player' ? 'Player' : 'CPU'} Wins Round` : 'Round Draw';
+  // Freeze both fighters so they stop looping combat animations
+  [p, c].forEach(f => { setState(f, State.Idle); f.vx = 0; f.vy = 0; f.impulseX = 0; f.impulseY = 0; f.buffer.length = 0; });
   roundLockFrames = 180;
 }
 
@@ -341,7 +449,7 @@ function resetRoundIfNeeded() {
 
   const p = world.player, c = world.cpu;
   if (p.roundWins >= CONFIG.roundWinsNeeded || c.roundWins >= CONFIG.roundWinsNeeded) {
-    ui.announcement.textContent = `${p.roundWins > c.roundWins ? 'Player' : 'CPU'} Wins Match`;
+    ui.announcement.textContent = `${p.roundWins > c.roundWins ? 'Player' : 'CPU'} Wins Match!  Tap to play again`;
     world.paused = true;
     return;
   }
@@ -352,6 +460,28 @@ function resetRoundIfNeeded() {
     f.health = CONFIG.healthMax;
     f.x = i === 0 ? 350 : 930;
     f.y = 560;
+    f.buffer.length = 0;
+    setState(f, State.Idle);
+  });
+  ui.announcement.textContent = '';
+}
+
+function resetMatch() {
+  world.round = 1;
+  world.timer = CONFIG.roundSeconds;
+  world.frame = 0;
+  world.hitStopFrames = 0;
+  world.paused = false;
+  roundLockFrames = 0;
+  aiCooldown = 0; aiMoveTimer = 0; aiMoveDir = 0; aiIdleTimer = 60;
+  aiAggression = 0.5; aiPersonalityTimer = 0;
+  [world.player, world.cpu].forEach((f, i) => {
+    f.health = CONFIG.healthMax;
+    f.roundWins = 0;
+    f.x = i === 0 ? 350 : 930;
+    f.y = 560;
+    f.vx = 0; f.vy = 0;
+    f.impulseX = 0; f.impulseY = 0;
     f.buffer.length = 0;
     setState(f, State.Idle);
   });
@@ -388,15 +518,22 @@ function render() {
 }
 
 function step() {
-  if (world.paused) return;
+  if (world.paused) {
+    // Any attack/block input restarts the match
+    if (world.input.punch || world.input.kick || world.input.block) {
+      world.input.punch = false; world.input.kick = false; world.input.block = false;
+      resetMatch();
+    }
+    return;
+  }
   world.frame++;
-  [world.player, world.cpu].forEach((f) => f.hitConfirmedThisState = false);
-
   if (world.hitStopFrames > 0) {
     world.hitStopFrames--;
     updateHud();
     return;
   }
+
+  [world.player, world.cpu].forEach((f) => f.hitConfirmedThisState = false);
 
   simInputForPlayer();
   simAI();

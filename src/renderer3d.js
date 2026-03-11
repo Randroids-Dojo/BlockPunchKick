@@ -21,14 +21,14 @@ let cameraZ = DEFAULT_ZOOM;
 
 const ANIM_MAP = {
   Idle: 'Idle',
-  Block: 'Standing',
-  Block_Recovery: 'Standing',
+  Block: 'ThumbsUp',
+  Block_Recovery: 'ThumbsUp',
   Punch_Startup: 'Punch',
   Punch_Active: 'Punch',
   Punch_Recovery: 'Punch',
-  Kick_Startup: 'Jump',
-  Kick_Active: 'Jump',
-  Kick_Recovery: 'Jump',
+  Kick_Startup: 'WalkJump',
+  Kick_Active: 'WalkJump',
+  Kick_Recovery: 'WalkJump',
   Hit_Stun: 'Death',
   Block_Stun: 'No',
   KO: 'Death',
@@ -50,7 +50,8 @@ export async function initScene(canvas) {
 
   scene = new THREE.Scene();
 
-  camera = new THREE.PerspectiveCamera(40, canvas.width / canvas.height, 0.1, 100);
+  const rect = canvas.getBoundingClientRect();
+  camera = new THREE.PerspectiveCamera(40, rect.width / rect.height, 0.1, 100);
   camera.position.set(0, 4.5, DEFAULT_ZOOM);
   camera.lookAt(0, 1.5, 0);
 
@@ -58,7 +59,7 @@ export async function initScene(canvas) {
   setupPinchZoom(canvas);
 
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setSize(canvas.width, canvas.height);
+  renderer.setSize(rect.width, rect.height, false);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -193,7 +194,19 @@ export function updateFighter(fighterId, fighter) {
   // Playback speed adjustments
   const currentAction = actions[fighterId]?.[clipName];
   if (currentAction) {
-    if (fighter.state.includes('Startup')) {
+    if (fighter.state === 'Block') {
+      // Hold at the raised-fist guard pose in the ThumbsUp animation
+      currentAction.timeScale = 0;
+      currentAction.time = 0.5;
+    } else if (fighter.state === 'Block_Recovery') {
+      currentAction.timeScale = 2.0;
+    } else if (fighter.state === 'Kick_Startup') {
+      currentAction.timeScale = 2.5;
+    } else if (fighter.state === 'Kick_Active') {
+      // Freeze at the extended leg pose for a visible kick impact frame
+      currentAction.timeScale = 0;
+      currentAction.time = 0.4;
+    } else if (fighter.state.includes('Startup')) {
       currentAction.timeScale = 1.5;
     } else if (fighter.state.includes('Recovery')) {
       currentAction.timeScale = 0.5;
@@ -252,8 +265,22 @@ export function triggerScreenShake(intensity) {
   shakeDecay = intensity;
 }
 
+export function resizeRenderer() {
+  if (!renderer || !camera) return;
+  const canvas = renderer.domElement;
+  const rect = canvas.getBoundingClientRect();
+  const w = rect.width * window.devicePixelRatio;
+  const h = rect.height * window.devicePixelRatio;
+  if (canvas.width !== Math.round(w) || canvas.height !== Math.round(h)) {
+    renderer.setSize(rect.width, rect.height, false);
+    camera.aspect = rect.width / rect.height;
+    camera.updateProjectionMatrix();
+  }
+}
+
 export function render3d() {
   if (!renderer) return;
+  resizeRenderer();
 
   const delta = clock.getDelta();
 
