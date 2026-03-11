@@ -449,8 +449,8 @@ function endRound() {
   const winner = p.health === c.health ? null : p.health > c.health ? p : c;
   if (winner) winner.roundWins++;
   ui.announcement.textContent = winner ? `${winner.id === 'player' ? 'Player' : 'CPU'} Wins Round` : 'Round Draw';
-  // Freeze both fighters so they stop looping combat animations
-  [p, c].forEach(f => { setState(f, State.Idle); f.vx = 0; f.vy = 0; f.impulseX = 0; f.impulseY = 0; f.buffer.length = 0; });
+  // Freeze both fighters — KO'd fighters play death animation, winner idles
+  [p, c].forEach(f => { setState(f, f.health <= 0 ? State.KO : State.Idle); f.vx = 0; f.vy = 0; f.impulseX = 0; f.impulseY = 0; f.buffer.length = 0; });
   roundLockFrames = 180;
 }
 
