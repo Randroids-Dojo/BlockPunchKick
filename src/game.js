@@ -28,12 +28,12 @@ const CONFIG = {
     maxSpeedY: 210,
     pushSeparation: 58,
     wallBounceDamping: 0.18,
-    impulseDamping: 18,
+    impulseDamping: 10,
     axisResponsivenessX: 1,
     axisResponsivenessY: 0.72,
   },
-  punch: { damage: 14, range: 100, yRange: 70, hitStun: 20, blockStun: 12, pushOnHit: 16, pushOnBlock: 10 },
-  kick: { damage: 20, range: 140, yRange: 80, hitStun: 26, blockStun: 16, pushOnHit: 24, pushOnBlock: 18 },
+  punch: { damage: 14, range: 100, yRange: 70, hitStun: 20, blockStun: 12, pushOnHit: 40, pushOnBlock: 22 },
+  kick: { damage: 20, range: 140, yRange: 80, hitStun: 26, blockStun: 16, pushOnHit: 60, pushOnBlock: 36 },
   chipDamage: 1,
 };
 
@@ -332,14 +332,22 @@ function resolveCombat() {
 
 function integrateFighterPhysics(f) {
   const physics = CONFIG.physics;
-  const movable = f.actionable() || f.state === State.BlockStun || f.state === State.HitStun;
+  // HitStun: no player control, only impulse moves the fighter
+  const inStun = f.state === State.HitStun || f.state === State.BlockStun;
+  const movable = f.actionable() && !inStun;
   const axisX = movable ? f.axisX : 0;
   const axisY = movable ? f.axisY : 0;
   const targetVX = axisX * physics.maxSpeedX * physics.axisResponsivenessX;
   const targetVY = axisY * physics.maxSpeedY * physics.axisResponsivenessY;
 
-  f.vx += (targetVX - f.vx) * Math.min(1, physics.moveAccel * DT / Math.max(1, physics.maxSpeedX));
-  f.vy += (targetVY - f.vy) * Math.min(1, physics.moveAccel * DT / Math.max(1, physics.maxSpeedY));
+  if (inStun) {
+    // Kill deliberate velocity so impulse/knockback isn't fought
+    f.vx *= Math.max(0, 1 - physics.airBrake * 2 * DT);
+    f.vy *= Math.max(0, 1 - physics.airBrake * 2 * DT);
+  } else {
+    f.vx += (targetVX - f.vx) * Math.min(1, physics.moveAccel * DT / Math.max(1, physics.maxSpeedX));
+    f.vy += (targetVY - f.vy) * Math.min(1, physics.moveAccel * DT / Math.max(1, physics.maxSpeedY));
+  }
 
   if (!axisX) f.vx *= Math.max(0, 1 - physics.airBrake * DT);
   if (!axisY) f.vy *= Math.max(0, 1 - physics.airBrake * DT);
