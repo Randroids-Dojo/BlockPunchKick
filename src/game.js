@@ -5,10 +5,10 @@ const DT = 1 / TICK_RATE;
 const FRAMES = {
   blockStartup: 1,
   blockRecovery: 4,
-  punchStartup: 5,
+  punchStartup: 7,
   punchActive: 3,
   punchRecovery: 10,
-  kickStartup: 8,
+  kickStartup: 10,
   kickActive: 4,
   kickRecovery: 14,
   hitStopPunch: 7,
@@ -191,8 +191,8 @@ function simInputForPlayer() {
   // Street Fighter style auto-block: holding back while enemy is attacking
   const holdingBack = (p.facing === 1 && world.input.left && !world.input.right) ||
                       (p.facing === -1 && world.input.right && !world.input.left);
-  const enemyAttacking = c.state === State.PunchStartup || c.state === State.PunchActive ||
-                         c.state === State.KickStartup || c.state === State.KickActive;
+  const enemyAttacking = c.state === State.PunchStartup || c.state === State.PunchActive || c.state === State.PunchRecovery ||
+                         c.state === State.KickStartup || c.state === State.KickActive || c.state === State.KickRecovery;
   const autoBlock = holdingBack && enemyAttacking;
   if (autoBlock) p.blockHeld = true;
 
