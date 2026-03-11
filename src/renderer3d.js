@@ -53,29 +53,30 @@ function createKickClip() {
     return q(Math.sin(r / 2), 0, 0, Math.cos(r / 2));
   };
 
+  // Bone names must use sanitized names (dots stripped) to match THREE.js PropertyBinding
   const tracks = [
     // Right upper leg: chamber up then extend forward
     new THREE.QuaternionKeyframeTrack(
-      'UpperLeg.R.quaternion', times,
+      'UpperLegR.quaternion', times,
       [...identity, ...rx(-90), ...rx(-70), ...rx(-70), ...identity]
     ),
     // Right lower leg: bend at knee for chamber, straighten on extend
     new THREE.QuaternionKeyframeTrack(
-      'LowerLeg.R.quaternion', times,
+      'LowerLegR.quaternion', times,
       [...identity, ...rx(110), ...rx(10), ...rx(10), ...identity]
     ),
     // Right foot: flex for impact
     new THREE.QuaternionKeyframeTrack(
-      'Foot.R.quaternion', times,
+      'FootR.quaternion', times,
       [...identity, ...rx(-20), ...rx(25), ...rx(25), ...identity]
     ),
     // Left leg (plant): slight bend for stability
     new THREE.QuaternionKeyframeTrack(
-      'UpperLeg.L.quaternion', times,
+      'UpperLegL.quaternion', times,
       [...identity, ...rx(-10), ...rx(-10), ...rx(-10), ...identity]
     ),
     new THREE.QuaternionKeyframeTrack(
-      'LowerLeg.L.quaternion', times,
+      'LowerLegL.quaternion', times,
       [...identity, ...rx(15), ...rx(15), ...rx(15), ...identity]
     ),
     // Torso: lean back slightly during kick
