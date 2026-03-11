@@ -194,9 +194,9 @@ export function updateFighter(fighterId, fighter) {
   const currentAction = actions[fighterId]?.[clipName];
   if (currentAction) {
     if (fighter.state === 'Block') {
-      // Hold a raised-arm guard pose by freezing the animation early
+      // Hold at the raised-arm guard pose in the Wave animation
       currentAction.timeScale = 0;
-      currentAction.time = 0.15;
+      currentAction.time = 0.8;
     } else if (fighter.state === 'Block_Recovery') {
       currentAction.timeScale = 2.0;
     } else if (fighter.state === 'Kick_Startup') {
