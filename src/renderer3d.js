@@ -30,7 +30,7 @@ const ANIM_MAP = {
   Kick_Startup: 'WalkJump',
   Kick_Active: 'WalkJump',
   Kick_Recovery: 'WalkJump',
-  Hit_Stun: 'Death',
+  Hit_Stun: 'Idle',
   Block_Stun: 'No',
   KO: 'Death',
 };
@@ -241,16 +241,14 @@ export function updateFighter(fighterId, fighter) {
   if (hs) {
     const wantSpin = fighter.state === 'Hit_Stun' || fighter.state === 'KO';
     hs.setEffectiveWeight(wantSpin ? 1 : 0);
-    if (wantSpin) hs.timeScale = 2.0;
+    if (wantSpin) hs.timeScale = 0.65;
   }
 
   // Hit flash effect (uses cached mesh references)
   const meshes = meshCache[fighterId];
-  const flashing = fighter.state === 'Hit_Stun' && fighter.stateFrame < 4;
   if (meshes) {
     for (const mesh of meshes) {
-      mesh.material.emissiveIntensity = flashing ? 0.8 : 0;
-      if (flashing) mesh.material.emissive.setHex(0xffffff);
+      mesh.material.emissiveIntensity = 0;
     }
   }
 }
