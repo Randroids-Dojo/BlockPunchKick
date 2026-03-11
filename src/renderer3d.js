@@ -30,7 +30,7 @@ const ANIM_MAP = {
   Kick_Active: 'WalkJump',
   Kick_Recovery: 'WalkJump',
   Hit_Stun: 'Death',
-  Block_Stun: 'No',
+  Block_Stun: 'ThumbsUp',
   KO: 'Death',
 };
 
@@ -194,7 +194,7 @@ export function updateFighter(fighterId, fighter) {
   // Playback speed adjustments
   const currentAction = actions[fighterId]?.[clipName];
   if (currentAction) {
-    if (fighter.state === 'Block') {
+    if (fighter.state === 'Block' || fighter.state === 'Block_Stun') {
       // Hold at the raised-fist guard pose in the ThumbsUp animation
       currentAction.timeScale = 0;
       currentAction.time = 0.5;

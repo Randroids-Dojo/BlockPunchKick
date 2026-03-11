@@ -210,8 +210,7 @@ function simInputForPlayer() {
   // During recovery frames or outside range, holding back walks backward normally.
   const holdingBack = (p.facing === 1 && world.input.left && !world.input.right) ||
                       (p.facing === -1 && world.input.right && !world.input.left);
-  // DEBUG: skip proximity check — holding back always blocks
-  const proximityGuard = holdingBack;
+  const proximityGuard = holdingBack && isProximityThreat(c, p);
   if (proximityGuard) p.blockHeld = true;
 
   if (p.actionable()) {
