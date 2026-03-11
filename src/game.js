@@ -26,7 +26,7 @@ const CONFIG = {
     airBrake: 20,
     maxSpeedX: 280,
     maxSpeedY: 210,
-    pushSeparation: 110,
+    pushSeparation: 200,
     wallBounceDamping: 0.18,
     impulseDamping: 10,
     axisResponsivenessX: 1,
