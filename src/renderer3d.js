@@ -27,15 +27,70 @@ const ANIM_MAP = {
   Punch_Startup: 'Punch',
   Punch_Active: 'Punch',
   Punch_Recovery: 'Punch',
-  Kick_Startup: 'WalkJump',
-  Kick_Active: 'WalkJump',
-  Kick_Recovery: 'WalkJump',
+  Kick_Startup: 'Kick',
+  Kick_Active: 'Kick',
+  Kick_Recovery: 'Kick',
   Hit_Stun: 'Idle',
   Block_Stun: 'No',
   KO: 'Death',
 };
 
 const BLEND_TIME = 0.08;
+
+// Build a procedural front-kick AnimationClip from bone quaternion keyframes.
+// The robot kicks with its right leg: chamber (knee up) -> extend -> retract.
+function createKickClip() {
+  const q = (x, y, z, w) => [x, y, z, w];
+  const identity = q(0, 0, 0, 1);
+
+  // Keyframe times: chamber, extend, hold, retract
+  const times = [0, 0.15, 0.25, 0.35, 0.5];
+
+  // Helper: rotation around X axis (pitch forward/back)
+  const rx = (deg) => {
+    const r = deg * Math.PI / 180;
+    return q(Math.sin(r / 2), 0, 0, Math.cos(r / 2));
+  };
+
+  const tracks = [
+    // Right upper leg: chamber up then extend forward
+    new THREE.QuaternionKeyframeTrack(
+      'UpperLeg.R.quaternion', times,
+      [...identity, ...rx(-90), ...rx(-70), ...rx(-70), ...identity]
+    ),
+    // Right lower leg: bend at knee for chamber, straighten on extend
+    new THREE.QuaternionKeyframeTrack(
+      'LowerLeg.R.quaternion', times,
+      [...identity, ...rx(110), ...rx(10), ...rx(10), ...identity]
+    ),
+    // Right foot: flex for impact
+    new THREE.QuaternionKeyframeTrack(
+      'Foot.R.quaternion', times,
+      [...identity, ...rx(-20), ...rx(25), ...rx(25), ...identity]
+    ),
+    // Left leg (plant): slight bend for stability
+    new THREE.QuaternionKeyframeTrack(
+      'UpperLeg.L.quaternion', times,
+      [...identity, ...rx(-10), ...rx(-10), ...rx(-10), ...identity]
+    ),
+    new THREE.QuaternionKeyframeTrack(
+      'LowerLeg.L.quaternion', times,
+      [...identity, ...rx(15), ...rx(15), ...rx(15), ...identity]
+    ),
+    // Torso: lean back slightly during kick
+    new THREE.QuaternionKeyframeTrack(
+      'Torso.quaternion', times,
+      [...identity, ...rx(10), ...rx(15), ...rx(15), ...identity]
+    ),
+    // Hips: tilt forward to sell the kick
+    new THREE.QuaternionKeyframeTrack(
+      'Hips.quaternion', times,
+      [...identity, ...rx(5), ...rx(-5), ...rx(-5), ...identity]
+    ),
+  ];
+
+  return new THREE.AnimationClip('Kick', 0.5, tracks);
+}
 
 // Map game world coords to 3D scene coords
 // Game arena: x 100-1180, y 430-600
@@ -114,6 +169,13 @@ export async function initScene(canvas) {
     actions.player[clip.name] = action;
   }
 
+  // Register procedural kick clip for player
+  const kickClip = createKickClip();
+  const playerKickAction = playerMixer.clipAction(kickClip);
+  playerKickAction.setLoop(THREE.LoopOnce);
+  playerKickAction.clampWhenFinished = true;
+  actions.player['Kick'] = playerKickAction;
+
   // HeadSpin overlay for player
   if (actions.player['HeadSpin']) {
     const hs = actions.player['HeadSpin'];
@@ -153,6 +215,12 @@ export async function initScene(canvas) {
     const action = cpuMixer.clipAction(clip);
     actions.cpu[clip.name] = action;
   }
+
+  // Register procedural kick clip for CPU
+  const cpuKickAction = cpuMixer.clipAction(kickClip);
+  cpuKickAction.setLoop(THREE.LoopOnce);
+  cpuKickAction.clampWhenFinished = true;
+  actions.cpu['Kick'] = cpuKickAction;
 
   // HeadSpin overlay for CPU
   if (actions.cpu['HeadSpin']) {
@@ -220,11 +288,12 @@ export function updateFighter(fighterId, fighter) {
     } else if (fighter.state === 'Block_Recovery') {
       currentAction.timeScale = 2.0;
     } else if (fighter.state === 'Kick_Startup') {
-      currentAction.timeScale = 2.5;
+      // Play the chamber portion (0 → 0.15s of the clip)
+      currentAction.timeScale = 1.0;
     } else if (fighter.state === 'Kick_Active') {
-      // Freeze at the extended leg pose for a visible kick impact frame
+      // Freeze at full leg extension
       currentAction.timeScale = 0;
-      currentAction.time = 0.4;
+      currentAction.time = 0.25;
     } else if (fighter.state.includes('Startup')) {
       currentAction.timeScale = 1.5;
     } else if (fighter.state.includes('Recovery')) {
