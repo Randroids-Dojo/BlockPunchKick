@@ -32,9 +32,9 @@ const CONFIG = {
     axisResponsivenessX: 1,
     axisResponsivenessY: 0.72,
   },
-  punch: { damage: 14, range: 340, proximityRange: 480, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 600 },
-  kick: { damage: 20, range: 360, proximityRange: 510, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 500 },
-  chipDamage: 5,
+  punch: { damage: 8, range: 340, proximityRange: 480, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 600 },
+  kick: { damage: 12, range: 360, proximityRange: 510, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 500 },
+  chipDamage: 3,
 };
 
 const State = {
@@ -62,7 +62,7 @@ const world = {
   frame: 0, round: 1, timer: CONFIG.roundSeconds,
   player: new Fighter('player', '#2d9bff', 350),
   cpu: new Fighter('cpu', '#ff5353', 930),
-  input: { left: false, right: false, up: false, down: false, block: false, punch: false, kick: false },
+  input: { left: false, right: false, up: false, down: false, punch: false, kick: false },
   hitStopFrames: 0, paused: false,
 };
 
@@ -77,7 +77,7 @@ const ui = {
 
 const keyMap = {
   ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right', ArrowUp: 'up', w: 'up', ArrowDown: 'down', s: 'down',
-  Shift: 'block', j: 'block', k: 'punch', l: 'kick',
+  k: 'punch', l: 'kick',
 };
 window.addEventListener('keydown', (e) => setInput(e.key, true));
 window.addEventListener('keyup', (e) => setInput(e.key, false));
@@ -110,7 +110,6 @@ function setupMobileControls() {
     el.addEventListener('pointercancel', stop);
     el.addEventListener('pointerleave', stop);
   };
-  bindHold('block-btn', 'block');
   bindHold('punch-btn', 'punch');
   bindHold('kick-btn', 'kick');
 
@@ -200,7 +199,7 @@ function isProximityThreat(attacker, defender) {
 
 function simInputForPlayer() {
   const p = world.player, c = world.cpu;
-  p.blockHeld = world.input.block;
+  p.blockHeld = false;
   if (world.input.punch) enqueueAction(p, 'punch');
   if (world.input.kick) enqueueAction(p, 'kick');
   world.input.punch = false; world.input.kick = false;
@@ -549,8 +548,8 @@ function render() {
 function step() {
   if (world.paused) {
     // Any attack/block input restarts the match
-    if (world.input.punch || world.input.kick || world.input.block) {
-      world.input.punch = false; world.input.kick = false; world.input.block = false;
+    if (world.input.punch || world.input.kick) {
+      world.input.punch = false; world.input.kick = false;
       resetMatch();
     }
     return;
