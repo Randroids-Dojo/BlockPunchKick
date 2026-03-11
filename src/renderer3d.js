@@ -41,36 +41,40 @@ const BLEND_TIME = 0.08;
 // Build a procedural front-kick AnimationClip from bone quaternion keyframes.
 // The robot kicks with its right leg: chamber (knee up) -> extend -> retract.
 // Bone names are sanitized (dots stripped) to match THREE.js PropertyBinding.
-// Keyframe values are ABSOLUTE bone-local quaternions matching the skeleton's rest pose.
+// All quaternion values are ABSOLUTE bone-local poses extracted/extrapolated from
+// the model's working animations (Idle, WalkJump) to ensure correct deformation.
 function createKickClip() {
-  // Quaternion multiply: a * b (Hamilton product)
-  function qMul(a, b) {
-    return [
-      a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1],
-      a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0],
-      a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3],
-      a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2],
-    ];
-  }
+  // Idle animation first-frame poses (the starting/ending pose for blending)
+  const idle = {
+    UpperLegR: [0.9795, -0.0257, 0.1373, 0.1449],
+    LowerLegR: [0.2772, 0.0000, 0.0000, 0.9608],
+    UpperLegL: [0.9855, 0.0176, -0.0843, 0.1461],
+    LowerLegL: [0.2772, 0.0000, 0.0000, 0.9608],
+  };
 
-  // Rotation around X axis (in radians from degrees)
-  function rxQuat(deg) {
-    const r = deg * Math.PI / 180;
-    return [Math.sin(r / 2), 0, 0, Math.cos(r / 2)];
-  }
+  // Reference poses from WalkJump animation (known to look correct):
+  //   UpperLeg.R forward (t=0.500): [0.6567, -0.0318, 0.2264, 0.7187]
+  //   UpperLeg.R most forward (t=0.417): [0.7039, 0.0508, 0.3645, 0.6075]
+  //   LowerLeg.R nearly straight (t=0.333): [0.1534, 0, 0, 0.9882]
+  //   LowerLeg.R very bent (t=0.125): [0.7983, 0, 0, 0.6022]
+  //   Foot.R flexed (t=0.417): [0, 0.9310, 0.3651, 0]
+  //   Foot.R rest: [0, 0.6955, 0.7185, 0]
 
-  // Apply a local X-rotation delta on top of a rest quaternion: q_rest * q_delta
-  function applyRx(rest, deg) { return qMul(rest, rxQuat(deg)); }
-
-  // Rest poses extracted from the RobotExpressive.glb skeleton
-  const REST = {
-    UpperLegR:  [0.9717, -0.0323, 0.1360, 0.1905],
-    LowerLegR:  [0.3503,  0.0000, 0.0000, 0.9366],
-    FootR:      [0.0000,  0.6955, 0.7185, 0.0000],
-    UpperLegL:  [0.9776,  0.0216,-0.0834, 0.1920],
-    LowerLegL:  [0.3503,  0.0000, 0.0000, 0.9366],
-    Torso:      [0.0583,  0.0000, 0.0000, 0.9983],
-    Hips:       [-0.1190, 0.0000, 0.0000, 0.9929],
+  // Kick target poses — extrapolated beyond WalkJump range for a high front kick
+  const kick = {
+    // Chamber: knee raised high, thigh ~60° forward (between walk forward values)
+    UpperLegR_chamber: [0.7039, 0.0508, 0.3645, 0.6075],
+    // Extend: thigh horizontal, leg fully out (extrapolated beyond WalkJump max)
+    UpperLegR_extend:  [0.5000, -0.0100, 0.2800, 0.8192],
+    // Knee very bent during chamber
+    LowerLegR_chamber: [0.7983, 0.0000, 0.0000, 0.6022],
+    // Knee nearly straight during extend
+    LowerLegR_extend:  [0.0872, 0.0000, 0.0000, 0.9962],
+    // Foot flexed for impact
+    FootR_chamber:     [0.0000, 0.8145, 0.5802, 0.0000],
+    FootR_extend:      [0.0000, 0.9310, 0.3651, 0.0000],
+    // Foot rest
+    FootR_rest:        [0.0000, 0.6955, 0.7185, 0.0000],
   };
 
   // Keyframe times: rest, chamber, extend, hold, retract
@@ -79,58 +83,42 @@ function createKickClip() {
   const tracks = [
     // Right upper leg: raise thigh for chamber, then extend forward
     new THREE.QuaternionKeyframeTrack('UpperLegR.quaternion', times, [
-      ...REST.UpperLegR,
-      ...applyRx(REST.UpperLegR, -70),   // chamber: knee up
-      ...applyRx(REST.UpperLegR, -85),   // extend: leg forward
-      ...applyRx(REST.UpperLegR, -85),   // hold
-      ...REST.UpperLegR,                  // retract
+      ...idle.UpperLegR,
+      ...kick.UpperLegR_chamber,
+      ...kick.UpperLegR_extend,
+      ...kick.UpperLegR_extend,
+      ...idle.UpperLegR,
     ]),
     // Right lower leg: bend knee for chamber, straighten on extend
     new THREE.QuaternionKeyframeTrack('LowerLegR.quaternion', times, [
-      ...REST.LowerLegR,
-      ...applyRx(REST.LowerLegR, 60),    // chamber: knee bent
-      ...applyRx(REST.LowerLegR, -30),   // extend: leg straight
-      ...applyRx(REST.LowerLegR, -30),   // hold
-      ...REST.LowerLegR,                  // retract
+      ...idle.LowerLegR,
+      ...kick.LowerLegR_chamber,
+      ...kick.LowerLegR_extend,
+      ...kick.LowerLegR_extend,
+      ...idle.LowerLegR,
     ]),
     // Right foot: flex for impact
     new THREE.QuaternionKeyframeTrack('FootR.quaternion', times, [
-      ...REST.FootR,
-      ...applyRx(REST.FootR, -15),
-      ...applyRx(REST.FootR, 20),
-      ...applyRx(REST.FootR, 20),
-      ...REST.FootR,
+      ...kick.FootR_rest,
+      ...kick.FootR_chamber,
+      ...kick.FootR_extend,
+      ...kick.FootR_extend,
+      ...kick.FootR_rest,
     ]),
-    // Left leg (plant): slight bend for stability
+    // Left leg (plant): slight forward lean for stability
     new THREE.QuaternionKeyframeTrack('UpperLegL.quaternion', times, [
-      ...REST.UpperLegL,
-      ...applyRx(REST.UpperLegL, -8),
-      ...applyRx(REST.UpperLegL, -8),
-      ...applyRx(REST.UpperLegL, -8),
-      ...REST.UpperLegL,
+      ...idle.UpperLegL,
+      ...idle.UpperLegL,
+      ...idle.UpperLegL,
+      ...idle.UpperLegL,
+      ...idle.UpperLegL,
     ]),
     new THREE.QuaternionKeyframeTrack('LowerLegL.quaternion', times, [
-      ...REST.LowerLegL,
-      ...applyRx(REST.LowerLegL, 12),
-      ...applyRx(REST.LowerLegL, 12),
-      ...applyRx(REST.LowerLegL, 12),
-      ...REST.LowerLegL,
-    ]),
-    // Torso: lean back slightly during kick
-    new THREE.QuaternionKeyframeTrack('Torso.quaternion', times, [
-      ...REST.Torso,
-      ...applyRx(REST.Torso, 10),
-      ...applyRx(REST.Torso, 15),
-      ...applyRx(REST.Torso, 15),
-      ...REST.Torso,
-    ]),
-    // Hips: tilt to sell the kick
-    new THREE.QuaternionKeyframeTrack('Hips.quaternion', times, [
-      ...REST.Hips,
-      ...applyRx(REST.Hips, 5),
-      ...applyRx(REST.Hips, -5),
-      ...applyRx(REST.Hips, -5),
-      ...REST.Hips,
+      ...idle.LowerLegL,
+      ...idle.LowerLegL,
+      ...idle.LowerLegL,
+      ...idle.LowerLegL,
+      ...idle.LowerLegL,
     ]),
   ];
 
