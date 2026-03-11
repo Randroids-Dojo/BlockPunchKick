@@ -9,6 +9,7 @@ const actions = {};
 const currentClips = {};
 const meshCache = {};
 const headSpinActions = {};
+const koPhase = {};          // 'spin' | 'death' | null per fighter
 const shakeOffset = { x: 0, y: 0 };
 let shakeDecay = 0;
 const cameraLookAt = new THREE.Vector3(0, 1.5, 0);
@@ -32,7 +33,7 @@ const ANIM_MAP = {
   Kick_Recovery: 'Kick',
   Hit_Stun: 'Idle',
   Block_Stun: 'No',
-  KO: 'Death',
+  KO: 'Idle',  // base clip during KO; sequenced to Death after HeadSpin
 };
 
 const BLEND_TIME = 0.08;
@@ -276,7 +277,10 @@ export function updateFighter(fighterId, fighter) {
   if (fighter.state === 'Move') {
     clipName = speed > 180 ? 'Running' : 'Walking';
   }
-  playClip(fighterId, clipName);
+  // Don't override clip during death phase of KO sequence
+  if (koPhase[fighterId] !== 'death') {
+    playClip(fighterId, clipName);
+  }
 
   // Playback speed adjustments
   const currentAction = actions[fighterId]?.[clipName];
@@ -305,19 +309,43 @@ export function updateFighter(fighterId, fighter) {
     }
   }
 
-  // HeadSpin overlay — activate only on KO (2 full rotations)
+  // Sequenced KO: HeadSpin (2 rotations) → Death (once, clamp on last frame)
   const hs = headSpinActions[fighterId];
   if (hs) {
-    const wantSpin = fighter.state === 'KO';
-    if (wantSpin && hs.getEffectiveWeight() === 0) {
-      // Starting a new KO spin — reset and play 2 loops
+    const isKO = fighter.state === 'KO';
+    if (isKO && !koPhase[fighterId]) {
+      // Start spin phase
+      koPhase[fighterId] = 'spin';
       hs.reset();
       hs.setLoop(THREE.LoopRepeat, 2);
       hs.clampWhenFinished = true;
       hs.timeScale = 1.0;
+      hs.setEffectiveWeight(1);
       hs.play();
+
+      // When spin finishes, transition to death animation
+      const onSpinDone = (e) => {
+        if (e.action !== hs) return;  // ignore other actions finishing
+        mixers[fighterId].removeEventListener('finished', onSpinDone);
+        hs.setEffectiveWeight(0);
+        koPhase[fighterId] = 'death';
+        // Play Death clip once, clamped
+        const deathAction = actions[fighterId]?.['Death'];
+        if (deathAction) {
+          deathAction.reset();
+          deathAction.setLoop(THREE.LoopOnce);
+          deathAction.clampWhenFinished = true;
+          deathAction.timeScale = 1.0;
+          deathAction.play();
+          currentClips[fighterId] = 'Death';
+        }
+      };
+      mixers[fighterId].addEventListener('finished', onSpinDone);
+    } else if (!isKO) {
+      // Reset KO phase when not in KO state
+      koPhase[fighterId] = null;
+      hs.setEffectiveWeight(0);
     }
-    hs.setEffectiveWeight(wantSpin ? 1 : 0);
   }
 
   // Hit flash effect (uses cached mesh references)
