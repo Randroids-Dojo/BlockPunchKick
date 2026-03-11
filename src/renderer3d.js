@@ -21,8 +21,8 @@ let cameraZ = DEFAULT_ZOOM;
 
 const ANIM_MAP = {
   Idle: 'Idle',
-  Block: 'Wave',
-  Block_Recovery: 'Wave',
+  Block: 'ThumbsUp',
+  Block_Recovery: 'ThumbsUp',
   Punch_Startup: 'Punch',
   Punch_Active: 'Punch',
   Punch_Recovery: 'Punch',
@@ -194,9 +194,9 @@ export function updateFighter(fighterId, fighter) {
   const currentAction = actions[fighterId]?.[clipName];
   if (currentAction) {
     if (fighter.state === 'Block') {
-      // Hold at the raised-arm guard pose in the Wave animation
+      // Hold at the raised-fist guard pose in the ThumbsUp animation
       currentAction.timeScale = 0;
-      currentAction.time = 0.8;
+      currentAction.time = 0.5;
     } else if (fighter.state === 'Block_Recovery') {
       currentAction.timeScale = 2.0;
     } else if (fighter.state === 'Kick_Startup') {
