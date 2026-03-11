@@ -8,6 +8,7 @@ const mixers = {};
 const actions = {};
 const currentClips = {};
 const meshCache = {};
+const headSpinActions = {};
 const shakeOffset = { x: 0, y: 0 };
 let shakeDecay = 0;
 const cameraLookAt = new THREE.Vector3(0, 1.5, 0);
@@ -31,7 +32,7 @@ const ANIM_MAP = {
   Kick_Recovery: 'WalkJump',
   Hit_Stun: 'Death',
   Block_Stun: 'No',
-  KO: 'HeadSpin',
+  KO: 'Death',
 };
 
 const BLEND_TIME = 0.08;
@@ -113,6 +114,15 @@ export async function initScene(canvas) {
     actions.player[clip.name] = action;
   }
 
+  // HeadSpin overlay for player
+  if (actions.player['HeadSpin']) {
+    const hs = actions.player['HeadSpin'];
+    hs.blendMode = THREE.AdditiveAnimationBlendMode;
+    hs.setEffectiveWeight(0);
+    hs.play();
+    headSpinActions.player = hs;
+  }
+
   // CPU fighter (clone with skeleton support)
   const cpuModel = skeletonClone(playerModel);
   scene.add(cpuModel);
@@ -142,6 +152,15 @@ export async function initScene(canvas) {
   for (const clip of gltf.animations) {
     const action = cpuMixer.clipAction(clip);
     actions.cpu[clip.name] = action;
+  }
+
+  // HeadSpin overlay for CPU
+  if (actions.cpu['HeadSpin']) {
+    const hs = actions.cpu['HeadSpin'];
+    hs.blendMode = THREE.AdditiveAnimationBlendMode;
+    hs.setEffectiveWeight(0);
+    hs.play();
+    headSpinActions.cpu = hs;
   }
 
   // Start both in idle
@@ -215,6 +234,14 @@ export function updateFighter(fighterId, fighter) {
     } else {
       currentAction.timeScale = 1.0;
     }
+  }
+
+  // HeadSpin overlay — activate when hit
+  const hs = headSpinActions[fighterId];
+  if (hs) {
+    const wantSpin = fighter.state === 'Hit_Stun' || fighter.state === 'KO';
+    hs.setEffectiveWeight(wantSpin ? 1 : 0);
+    if (wantSpin) hs.timeScale = 2.0;
   }
 
   // Hit flash effect (uses cached mesh references)
