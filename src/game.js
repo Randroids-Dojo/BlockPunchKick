@@ -176,52 +176,70 @@ function simInputForPlayer() {
 }
 
 let aiCooldown = 0;
+// AI movement plan: the AI commits to a movement direction for a set duration
+let aiMoveTimer = 0;    // frames left in current movement plan
+let aiMoveDir = 0;      // -1 = retreat, 0 = idle, 1 = approach
+let aiIdleTimer = 60;   // frames to idle before next decision
+
 function simAI() {
   const ai = world.cpu, player = world.player;
   aiCooldown--;
+  aiMoveTimer--;
+  aiIdleTimer--;
   const dx = player.x - ai.x;
   const dy = player.y - ai.y;
   const distance = Math.abs(dx);
   ai.facing = dx > 0 ? 1 : -1;
   if (!ai.actionable()) return;
 
+  // Reactive block when player telegraphs an attack
   ai.blockHeld = false;
   if ((player.state === State.PunchStartup || player.state === State.KickStartup) && distance < 160 && aiCooldown <= 0) {
-    ai.blockHeld = Math.random() < 0.75;
+    ai.blockHeld = Math.random() < 0.7;
     if (ai.blockHeld) setState(ai, State.Block);
-    aiCooldown = 8;
+    aiCooldown = 10;
     return;
   }
 
-  if (distance > 200) {
-    // Approach, but not always — sometimes hang back
-    if (Math.random() < 0.6) {
-      ai.axisX = Math.sign(dx) * 0.6;
-      ai.axisY = Math.sign(dy) * 0.35;
-      setState(ai, State.Move);
+  // Pick a new movement plan when the current one expires
+  if (aiMoveTimer <= 0 && aiIdleTimer <= 0) {
+    const roll = Math.random();
+    if (distance > 250) {
+      // Far away — usually approach, sometimes wait
+      aiMoveDir = roll < 0.7 ? 1 : 0;
+      aiMoveTimer = 40 + Math.floor(Math.random() * 50);
+    } else if (distance < 100) {
+      // Too close — back off or idle
+      aiMoveDir = roll < 0.6 ? -1 : 0;
+      aiMoveTimer = 30 + Math.floor(Math.random() * 40);
     } else {
-      ai.axisX = 0; ai.axisY = 0;
-      if (ai.state === State.Move) setState(ai, State.Idle);
+      // Mid range — mix of approach, retreat, and idle
+      if (roll < 0.3) aiMoveDir = 1;       // approach
+      else if (roll < 0.55) aiMoveDir = -1; // retreat
+      else aiMoveDir = 0;                   // stand ground
+      aiMoveTimer = 25 + Math.floor(Math.random() * 45);
     }
-  } else if (distance < 90) {
-    // Too close — back off sometimes to give the player breathing room
-    if (Math.random() < 0.4) {
-      ai.axisX = -Math.sign(dx) * 0.5;
-      ai.axisY = 0;
-      setState(ai, State.Move);
-      aiCooldown = Math.max(aiCooldown, 20);
-    }
+    // Idle pause between movement plans
+    aiIdleTimer = 15 + Math.floor(Math.random() * 25);
+  }
+
+  // Execute movement plan
+  if (aiMoveTimer > 0 && aiMoveDir !== 0) {
+    ai.axisX = Math.sign(dx) * aiMoveDir * 0.6;
+    ai.axisY = Math.sign(dy) * 0.25;
+    setState(ai, State.Move);
   } else {
     ai.axisX = 0;
     ai.axisY = 0;
     if (ai.state === State.Move) setState(ai, State.Idle);
-    if (aiCooldown <= 0) {
-      // Only attack ~60% of the time when in range; otherwise just wait
-      if (Math.random() < 0.6) {
-        enqueueAction(ai, Math.random() < 0.55 ? 'punch' : 'kick');
-      }
-      aiCooldown = 30 + Math.floor(Math.random() * 30);
+  }
+
+  // Attack decision — only when in range, idle, and cooldown expired
+  if (distance > 80 && distance < 160 && aiCooldown <= 0 && aiMoveDir >= 0) {
+    if (Math.random() < 0.5) {
+      enqueueAction(ai, Math.random() < 0.55 ? 'punch' : 'kick');
     }
+    aiCooldown = 40 + Math.floor(Math.random() * 40);
   }
 }
 
