@@ -193,17 +193,34 @@ function simAI() {
     return;
   }
 
-  if (distance > 140) {
-    ai.axisX = Math.sign(dx) * 0.75;
-    ai.axisY = Math.sign(dy) * 0.45;
-    setState(ai, State.Move);
+  if (distance > 200) {
+    // Approach, but not always — sometimes hang back
+    if (Math.random() < 0.6) {
+      ai.axisX = Math.sign(dx) * 0.6;
+      ai.axisY = Math.sign(dy) * 0.35;
+      setState(ai, State.Move);
+    } else {
+      ai.axisX = 0; ai.axisY = 0;
+      if (ai.state === State.Move) setState(ai, State.Idle);
+    }
+  } else if (distance < 90) {
+    // Too close — back off sometimes to give the player breathing room
+    if (Math.random() < 0.4) {
+      ai.axisX = -Math.sign(dx) * 0.5;
+      ai.axisY = 0;
+      setState(ai, State.Move);
+      aiCooldown = Math.max(aiCooldown, 20);
+    }
   } else {
     ai.axisX = 0;
     ai.axisY = 0;
     if (ai.state === State.Move) setState(ai, State.Idle);
     if (aiCooldown <= 0) {
-      enqueueAction(ai, Math.random() < 0.55 ? 'punch' : 'kick');
-      aiCooldown = 18 + Math.floor(Math.random() * 14);
+      // Only attack ~60% of the time when in range; otherwise just wait
+      if (Math.random() < 0.6) {
+        enqueueAction(ai, Math.random() < 0.55 ? 'punch' : 'kick');
+      }
+      aiCooldown = 30 + Math.floor(Math.random() * 30);
     }
   }
 }
