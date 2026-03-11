@@ -277,8 +277,8 @@ export function updateFighter(fighterId, fighter) {
   if (fighter.state === 'Move') {
     clipName = speed > 180 ? 'Running' : 'Walking';
   }
-  // Don't override clip during death phase of KO sequence
-  if (koPhase[fighterId] !== 'death') {
+  // Don't override clip during death/done phase of KO sequence
+  if (koPhase[fighterId] !== 'death' && koPhase[fighterId] !== 'done') {
     playClip(fighterId, clipName);
   }
 
