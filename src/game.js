@@ -339,12 +339,12 @@ function tryHit(attacker, defender, move, isKick) {
   const dy = Math.abs(defender.y - attacker.y);
   if (dx <= 0 || dx > move.range || dy > move.yRange) return;
 
-  const blocked = defender.state === State.Block;
+  const blocked = defender.state === State.Block || defender.state === State.BlockStun;
   if (blocked) {
-    defender.health = Math.max(0, defender.health - CONFIG.chipDamage);
+    // Blocking absorbs all damage (no chip)
     setState(defender, State.BlockStun); defender.stunFrames = move.blockStun;
-    attacker.impulseX -= attacker.facing * move.pushOnBlock * 22;
-    defender.impulseX += attacker.facing * move.pushOnBlock * 14;
+    attacker.impulseX -= attacker.facing * move.pushOnBlock * 28;
+    defender.impulseX += attacker.facing * move.pushOnBlock * 18;
     world.hitStopFrames = FRAMES.hitStopBlocked;
     triggerScreenShake(4);
   } else {
