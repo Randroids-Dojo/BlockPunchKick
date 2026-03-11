@@ -40,13 +40,15 @@ html, body {
 .timer { font-size: 1.6rem; font-weight: 800; }
 .announcement { min-height: 18px; color: #ffe16b; font-size: 0.9rem; }
 
-/* Canvas fills remaining space */
+/* Canvas fills all remaining space in both orientations */
 #arena {
-  flex: 1 1 auto; min-height: 0;
-  width: 100%; height: auto;
+  flex: 1 1 0;
+  min-height: 0; min-width: 0;
+  width: 100%;
+  display: block;
   border-radius: 8px;
   border: 1px solid var(--line);
-  background: linear-gradient(#25407e 0%, #1d2f5f 56%, #354e2a 56%, #48663d 100%);
+  background: #0b1020;
 }
 
 /* Floating joystick — left half of the screen, overlays the canvas */
