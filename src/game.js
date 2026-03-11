@@ -209,6 +209,10 @@ let aiMoveTimer = 0;    // frames left in current movement plan
 let aiMoveDir = 0;      // -1 = retreat, 0 = idle, 1 = approach
 let aiIdleTimer = 60;   // frames to idle before next decision
 
+// AI personality shifts over the fight to stay unpredictable
+let aiAggression = 0.5; // 0 = defensive, 1 = aggressive
+let aiPersonalityTimer = 0;
+
 function simAI() {
   const ai = world.cpu, player = world.player;
   aiCooldown--;
@@ -220,12 +224,36 @@ function simAI() {
   ai.facing = dx > 0 ? 1 : -1;
   if (!ai.actionable()) return;
 
-  // Reactive block when player telegraphs an attack
+  // Shift personality periodically — keeps the AI feeling unpredictable
+  aiPersonalityTimer--;
+  if (aiPersonalityTimer <= 0) {
+    aiAggression = 0.2 + Math.random() * 0.7; // range 0.2–0.9
+    aiPersonalityTimer = 120 + Math.floor(Math.random() * 180); // shift every 1–2.5s
+  }
+
+  // Health-aware aggression: get more aggressive when ahead, more defensive when behind
+  const healthRatio = ai.health / Math.max(1, player.health);
+  const effectiveAggro = Math.min(1, aiAggression + (healthRatio > 1.3 ? 0.15 : healthRatio < 0.7 ? -0.2 : 0));
+
+  // Reaction to player attacks — mix of block, counter-attack, and getting hit
   ai.blockHeld = false;
-  if ((player.state === State.PunchStartup || player.state === State.KickStartup) && distance < 420 && aiCooldown <= 0) {
-    ai.blockHeld = Math.random() < 0.7;
-    if (ai.blockHeld) setState(ai, State.Block);
-    aiCooldown = 10;
+  const playerAttacking = player.state === State.PunchStartup || player.state === State.KickStartup ||
+                          player.state === State.PunchActive || player.state === State.KickActive;
+  if (playerAttacking && distance < 420 && aiCooldown <= 0) {
+    const roll = Math.random();
+    if (roll < 0.35 * (1 - effectiveAggro)) {
+      // Block
+      ai.blockHeld = true;
+      setState(ai, State.Block);
+      aiCooldown = 8 + Math.floor(Math.random() * 12);
+    } else if (roll < 0.35 * (1 - effectiveAggro) + 0.4 * effectiveAggro) {
+      // Counter-attack — trade hits instead of blocking
+      enqueueAction(ai, Math.random() < 0.5 ? 'punch' : 'kick');
+      aiCooldown = 15 + Math.floor(Math.random() * 20);
+    } else {
+      // Do nothing — sometimes the AI just gets hit
+      aiCooldown = 5;
+    }
     return;
   }
 
@@ -233,27 +261,27 @@ function simAI() {
   if (aiMoveTimer <= 0 && aiIdleTimer <= 0) {
     const roll = Math.random();
     if (distance > 500) {
-      // Far away — usually approach, sometimes wait
-      aiMoveDir = roll < 0.7 ? 1 : 0;
-      aiMoveTimer = 40 + Math.floor(Math.random() * 50);
-    } else if (distance < 340) {
-      // At minimum separation — back off or hold ground
-      aiMoveDir = roll < 0.6 ? -1 : 0;
+      aiMoveDir = roll < (0.5 + effectiveAggro * 0.4) ? 1 : 0;
       aiMoveTimer = 30 + Math.floor(Math.random() * 40);
+    } else if (distance < 340) {
+      // Close: aggressive AI holds ground or advances, defensive AI retreats
+      if (roll < effectiveAggro * 0.4) aiMoveDir = 0;
+      else if (roll < 0.4 + effectiveAggro * 0.3) aiMoveDir = -1;
+      else aiMoveDir = 0;
+      aiMoveTimer = 20 + Math.floor(Math.random() * 35);
     } else {
-      // Mid range — mix of approach, retreat, and idle
-      if (roll < 0.3) aiMoveDir = 1;       // approach
-      else if (roll < 0.55) aiMoveDir = -1; // retreat
-      else aiMoveDir = 0;                   // stand ground
+      // Mid range
+      if (roll < 0.2 + effectiveAggro * 0.3) aiMoveDir = 1;
+      else if (roll < 0.5) aiMoveDir = -1;
+      else aiMoveDir = 0;
       aiMoveTimer = 25 + Math.floor(Math.random() * 45);
     }
-    // Idle pause between movement plans
-    aiIdleTimer = 15 + Math.floor(Math.random() * 25);
+    aiIdleTimer = 10 + Math.floor(Math.random() * 20);
   }
 
   // Execute movement plan
   if (aiMoveTimer > 0 && aiMoveDir !== 0) {
-    ai.axisX = Math.sign(dx) * aiMoveDir * 0.6;
+    ai.axisX = Math.sign(dx) * aiMoveDir * (0.4 + effectiveAggro * 0.4);
     ai.axisY = Math.sign(dy) * 0.25;
     setState(ai, State.Move);
   } else {
@@ -262,12 +290,12 @@ function simAI() {
     if (ai.state === State.Move) setState(ai, State.Idle);
   }
 
-  // Attack decision — only when in range, idle, and cooldown expired
-  if (distance < 420 && aiCooldown <= 0 && aiMoveDir >= 0) {
-    if (Math.random() < 0.5) {
+  // Attack decision — aggression drives frequency and timing
+  if (distance < 420 && aiCooldown <= 0) {
+    if (Math.random() < 0.3 + effectiveAggro * 0.35) {
       enqueueAction(ai, Math.random() < 0.55 ? 'punch' : 'kick');
     }
-    aiCooldown = 40 + Math.floor(Math.random() * 40);
+    aiCooldown = Math.floor(25 + (1 - effectiveAggro) * 50 + Math.random() * 30);
   }
 }
 
@@ -445,6 +473,8 @@ function resetMatch() {
   world.hitStopFrames = 0;
   world.paused = false;
   roundLockFrames = 0;
+  aiCooldown = 0; aiMoveTimer = 0; aiMoveDir = 0; aiIdleTimer = 60;
+  aiAggression = 0.5; aiPersonalityTimer = 0;
   [world.player, world.cpu].forEach((f, i) => {
     f.health = CONFIG.healthMax;
     f.roundWins = 0;
