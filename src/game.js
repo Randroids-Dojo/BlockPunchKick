@@ -11,9 +11,9 @@ const FRAMES = {
   kickStartup: 8,
   kickActive: 4,
   kickRecovery: 14,
-  hitStopPunch: 5,
-  hitStopKick: 7,
-  hitStopBlocked: 3,
+  hitStopPunch: 7,
+  hitStopKick: 10,
+  hitStopBlocked: 4,
 };
 
 const CONFIG = {
@@ -32,8 +32,8 @@ const CONFIG = {
     axisResponsivenessX: 1,
     axisResponsivenessY: 0.72,
   },
-  punch: { damage: 14, range: 130, yRange: 70, hitStun: 20, blockStun: 12, pushOnHit: 40, pushOnBlock: 22 },
-  kick: { damage: 20, range: 155, yRange: 80, hitStun: 26, blockStun: 16, pushOnHit: 60, pushOnBlock: 36 },
+  punch: { damage: 14, range: 340, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 600 },
+  kick: { damage: 20, range: 360, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 500 },
   chipDamage: 1,
 };
 
@@ -278,6 +278,7 @@ function processStates(f) {
       if (f.stateFrame >= FRAMES.blockRecovery) setState(f, State.Idle);
       break;
     case State.PunchStartup:
+      f.impulseX += f.facing * CONFIG.punch.lungeForce;
       if (f.stateFrame >= FRAMES.punchStartup) setState(f, State.PunchActive);
       break;
     case State.PunchActive:
@@ -287,6 +288,7 @@ function processStates(f) {
       if (f.stateFrame >= FRAMES.punchRecovery) setState(f, State.Idle);
       break;
     case State.KickStartup:
+      f.impulseX += f.facing * CONFIG.kick.lungeForce;
       if (f.stateFrame >= FRAMES.kickStartup) setState(f, State.KickActive);
       break;
     case State.KickActive:
@@ -323,7 +325,7 @@ function tryHit(attacker, defender, move, isKick) {
     defender.impulseX += attacker.facing * move.pushOnHit * 22;
     attacker.impulseX -= attacker.facing * move.pushOnHit * 9;
     world.hitStopFrames = isKick ? FRAMES.hitStopKick : FRAMES.hitStopPunch;
-    triggerScreenShake(isKick ? 12 : 8);
+    triggerScreenShake(isKick ? 18 : 12);
   }
 
   attacker.hitConfirmedThisState = true;
