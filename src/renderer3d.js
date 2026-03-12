@@ -44,7 +44,7 @@ const BLEND_TIME = 0.08;
 // Bone names are sanitized (dots stripped) to match THREE.js PropertyBinding.
 // All quaternion values are ABSOLUTE bone-local poses extracted/extrapolated from
 // the model's working animations (Idle, WalkJump, Punch, Jump).
-function createKickClip() {
+function createKickClip(model) {
   // Idle animation first-frame poses (the starting/ending pose for blending)
   const idle = {
     Body:      [0.0000, 0.0000, -0.0000, 1.0000],
@@ -92,6 +92,77 @@ function createKickClip() {
     LowerLegL_plant:   [0.3244, 0.0000, 0.0000, 0.9459],
   };
 
+  // Compute FootR positions via forward kinematics.
+  // FootR is parented to root Bone (IK rig), so we must explicitly position it.
+  // Temporarily pose the leg bones, update matrices, and read the foot endpoint.
+  const footRIdlePos = [-0.0064, 0.0003, 0.0006]; // default rest position
+  let footRChamberPos = footRIdlePos;
+  let footRExtendPos = footRIdlePos;
+
+  if (model) {
+    const bodyBone = model.getObjectByName('Body');
+    const upperLegR = model.getObjectByName('UpperLegR');
+    const lowerLegR = model.getObjectByName('LowerLegR');
+    const footR = model.getObjectByName('FootR');
+    const rootBone = model.getObjectByName('Bone');
+
+    if (upperLegR && lowerLegR && footR && rootBone) {
+      // Save current quaternions
+      const savedUpper = upperLegR.quaternion.clone();
+      const savedLower = lowerLegR.quaternion.clone();
+      const savedBody = bodyBone ? bodyBone.quaternion.clone() : null;
+
+      // Helper: compute foot position for a given leg pose
+      function computeFootPos(upperQ, lowerQ, bodyQ) {
+        if (bodyBone && bodyQ) bodyBone.quaternion.set(...bodyQ);
+        upperLegR.quaternion.set(...upperQ);
+        lowerLegR.quaternion.set(...lowerQ);
+        // Update the full chain from root
+        rootBone.updateWorldMatrix(true, true);
+        // Get the world position of the end of LowerLegR
+        // The shin endpoint is at LowerLegR's position + shin length along local Y
+        // We approximate by using the foot's rest offset from LowerLegR world pos
+        const lowerWorld = new THREE.Vector3();
+        lowerLegR.getWorldPosition(lowerWorld);
+        // Shin direction: local +Y transformed by LowerLegR's world rotation
+        const shinDir = new THREE.Vector3(0, 1, 0);
+        const lowerWorldQuat = new THREE.Quaternion();
+        lowerLegR.getWorldQuaternion(lowerWorldQuat);
+        shinDir.applyQuaternion(lowerWorldQuat);
+        // Shin length: approximate from rest pose (foot rest pos - lowerLeg rest pos in world)
+        const footRestWorld = new THREE.Vector3();
+        footR.getWorldPosition(footRestWorld);
+        const shinLength = footRestWorld.distanceTo(lowerWorld);
+        // Foot world position = end of shin
+        const footWorld = lowerWorld.clone().add(shinDir.multiplyScalar(shinLength));
+        // Convert to FootR parent (rootBone) local space
+        const rootInverse = new THREE.Matrix4().copy(rootBone.matrixWorld).invert();
+        footWorld.applyMatrix4(rootInverse);
+        return [footWorld.x, footWorld.y, footWorld.z];
+      }
+
+      // Compute for idle pose (verification)
+      const idlePos = computeFootPos(idle.UpperLegR, idle.LowerLegR, idle.Body);
+
+      // Compute for chamber
+      footRChamberPos = computeFootPos(
+        kick.UpperLegR_chamber, kick.LowerLegR_chamber, kick.Body_chamber
+      );
+
+      // Compute for extend
+      footRExtendPos = computeFootPos(
+        kick.UpperLegR_extend, kick.LowerLegR_extend, kick.Body_extend
+      );
+
+      // Restore original quaternions
+      upperLegR.quaternion.copy(savedUpper);
+      lowerLegR.quaternion.copy(savedLower);
+      if (bodyBone && savedBody) bodyBone.quaternion.copy(savedBody);
+      rootBone.updateWorldMatrix(true, true);
+
+    }
+  }
+
   // Keyframe times: rest, chamber, extend, hold, retract
   const times = [0, 0.10, 0.18, 0.25, 0.50];
 
@@ -117,6 +188,14 @@ function createKickClip() {
       ...kick.FootR_extend,
       ...kick.FootR_extend,
       ...idle.FootR,
+    ]),
+    // FootR POSITION track — IK rig requires explicit positioning
+    new THREE.VectorKeyframeTrack('FootR.position', times, [
+      ...footRIdlePos,
+      ...footRChamberPos,
+      ...footRExtendPos,
+      ...footRExtendPos,
+      ...footRIdlePos,
     ]),
 
     // --- BODY (lean back for counterbalance) ---
@@ -267,7 +346,7 @@ export async function initScene(canvas) {
   }
 
   // Register procedural kick clip for player
-  const kickClip = createKickClip();
+  const kickClip = createKickClip(playerModel);
   const playerKickAction = playerMixer.clipAction(kickClip);
   playerKickAction.setLoop(THREE.LoopOnce);
   playerKickAction.clampWhenFinished = true;
