@@ -68,8 +68,8 @@ function createKickClip() {
     UpperLegR_extend:  [0.6526, -0.0440, 0.0978, 0.7501],  // 2.5x delta (~80° fwd)
     LowerLegR_chamber: [0.5144, 0.0000, 0.0000, 0.8575],   // Bent (WalkJump delta)
     LowerLegR_extend:  [0.0035, 0.0000, 0.0000, 1.0000],   // Fully straight (from Punch)
-    FootR_chamber:     [0.0000, 0.8145, 0.5802, 0.0000],   // WalkJump t=0.250
-    FootR_extend:      [0.0000, 0.9310, 0.3651, 0.0000],   // WalkJump t=0.417
+    FootR_chamber:     [0.0000, 0.6955, 0.7185, 0.0000],   // Idle (follows leg)
+    FootR_extend:      [0.0000, 0.6955, 0.7185, 0.0000],   // Idle (follows leg)
 
     // --- Body — neutral at chamber, slight backward lean at extend ---
     Body_chamber:      [0.0000, 0.0000, 0.0000, 1.0000],
