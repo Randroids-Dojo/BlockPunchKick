@@ -34,6 +34,7 @@ const CONFIG = {
   },
   punch: { damage: 8, range: 340, proximityRange: 480, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 600 },
   kick: { damage: 12, range: 360, proximityRange: 510, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 500 },
+  attackCooldown: 18,
   chipDamage: 1,
 };
 
@@ -50,6 +51,7 @@ class Fighter {
     this.facing = 1; this.state = State.Idle; this.stateFrame = 0;
     this.health = CONFIG.healthMax; this.roundWins = 0; this.blockHeld = false;
     this.buffer = [];
+    this.attackCooldown = 0;
     this.axisX = 0; this.axisY = 0;
     this.vx = 0; this.vy = 0;
     this.impulseX = 0; this.impulseY = 0;
@@ -85,33 +87,24 @@ function setInput(key, val) {
   const mapped = keyMap[key] ?? keyMap[key.toLowerCase()];
   if (!mapped) return;
   if (mapped === 'punch' || mapped === 'kick') {
+    // Only register on key down, ignore repeats/holds
     if (val) world.input[mapped] = true;
   } else world.input[mapped] = val;
 }
 
 function setupMobileControls() {
-  // Hold-to-repeat for action buttons
-  const bindHold = (id, field) => {
+  // Single-tap attack buttons — suppress long-press context menu/vibration
+  const bindAttack = (id, field) => {
     const el = document.getElementById(id);
-    let repeatInterval = null;
-    const start = (e) => {
+    el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       world.input[field] = true;
-      if (field !== 'block' && !repeatInterval) {
-        repeatInterval = setInterval(() => { world.input[field] = true; }, 120);
-      }
-    };
-    const stop = () => {
-      world.input[field] = false;
-      if (repeatInterval) { clearInterval(repeatInterval); repeatInterval = null; }
-    };
-    el.addEventListener('pointerdown', start);
-    el.addEventListener('pointerup', stop);
-    el.addEventListener('pointercancel', stop);
-    el.addEventListener('pointerleave', stop);
+    });
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    el.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
   };
-  bindHold('punch-btn', 'punch');
-  bindHold('kick-btn', 'kick');
+  bindAttack('punch-btn', 'punch');
+  bindAttack('kick-btn', 'kick');
 
   // Floating joystick — left half of screen
   const zone = document.getElementById('stick-zone');
@@ -165,6 +158,7 @@ setupMobileControls();
 
 function enqueueAction(fighter, action) {
   if (fighter.buffer.length > 2) return;
+  if (fighter.attackCooldown > 0) return;
   fighter.buffer.push({ action, expires: world.frame + 5 });
 }
 
@@ -173,12 +167,15 @@ function consumeBufferedAction(fighter) {
   if (!fighter.actionable() || fighter.buffer.length === 0) return;
   // Don't consume attack actions while actively blocking
   if (fighter.blockHeld || fighter.state === State.Block) return;
-  const next = fighter.buffer.shift().action;
-  if (next === 'punch') setState(fighter, State.PunchStartup);
-  if (next === 'kick') setState(fighter, State.KickStartup);
+  const next = fighter.buffer.shift();
+  if (next.action === 'punch') setState(fighter, State.PunchStartup);
+  if (next.action === 'kick') setState(fighter, State.KickStartup);
+  fighter.attackCooldown = CONFIG.attackCooldown;
 }
 
-function setState(f, next) { f.state = next; f.stateFrame = 0; }
+function setState(f, next) {
+  f.state = next; f.stateFrame = 0;
+}
 
 // SF2-style proximity guard: returns true if attacker is a threat that should trigger block.
 // Only startup + active frames count as threatening (NOT recovery).
@@ -200,6 +197,9 @@ function isProximityThreat(attacker, defender) {
 function simInputForPlayer() {
   const p = world.player, c = world.cpu;
   p.blockHeld = false;
+  p.attackCooldown = Math.max(0, p.attackCooldown - 1);
+
+  // Single-press attacks
   if (world.input.punch) enqueueAction(p, 'punch');
   if (world.input.kick) enqueueAction(p, 'kick');
   world.input.punch = false; world.input.kick = false;
@@ -246,10 +246,12 @@ function simAI() {
   aiCooldown--;
   aiMoveTimer--;
   aiIdleTimer--;
+  ai.attackCooldown = Math.max(0, ai.attackCooldown - 1);
   const dx = player.x - ai.x;
   const dy = player.y - ai.y;
   const distance = Math.abs(dx);
   ai.facing = dx > 0 ? 1 : -1;
+
   if (!ai.actionable()) return;
 
   // Shift personality periodically — keeps the AI feeling unpredictable
@@ -466,7 +468,7 @@ function endRound() {
   if (winner) winner.roundWins++;
   ui.announcement.textContent = winner ? `${winner.id === 'player' ? 'Player' : 'CPU'} Wins Round` : 'Round Draw';
   // Freeze both fighters — KO'd fighters play death animation, winner idles
-  [p, c].forEach(f => { setState(f, f.health <= 0 ? State.KO : State.Idle); f.vx = 0; f.vy = 0; f.impulseX = 0; f.impulseY = 0; f.buffer.length = 0; });
+  [p, c].forEach(f => { setState(f, f.health <= 0 ? State.KO : State.Idle); f.vx = 0; f.vy = 0; f.impulseX = 0; f.impulseY = 0; f.buffer.length = 0; f.attackCooldown = 0; });
   roundLockFrames = 180;
 }
 
@@ -503,6 +505,7 @@ function resetRoundIfNeeded() {
     f.x = i === 0 ? 350 : 930;
     f.y = 560;
     f.buffer.length = 0;
+    f.attackCooldown = 0;
     setState(f, State.Idle);
   });
   ui.announcement.textContent = '';
@@ -525,6 +528,7 @@ function resetMatch() {
     f.vx = 0; f.vy = 0;
     f.impulseX = 0; f.impulseY = 0;
     f.buffer.length = 0;
+    f.attackCooldown = 0;
     setState(f, State.Idle);
   });
   ui.announcement.textContent = '';
