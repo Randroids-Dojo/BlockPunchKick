@@ -40,48 +40,69 @@ const BLEND_TIME = 0.08;
 
 // Build a procedural front-kick AnimationClip from bone quaternion keyframes.
 // The robot kicks with its right leg: chamber (knee up) -> extend -> retract.
+// Full-body animation: torso leans back, arms counterbalance, plant leg bends.
 // Bone names are sanitized (dots stripped) to match THREE.js PropertyBinding.
 // All quaternion values are ABSOLUTE bone-local poses extracted/extrapolated from
-// the model's working animations (Idle, WalkJump) to ensure correct deformation.
+// the model's working animations (Idle, WalkJump, Punch, Jump).
 function createKickClip() {
   // Idle animation first-frame poses (the starting/ending pose for blending)
   const idle = {
+    Body:      [0.0000, 0.0000, -0.0000, 1.0000],
+    Head:      [-0.0309, -0.0029, -0.0013, 0.9995],
+    UpperArmL: [-0.0546, -0.6899, 0.0692, 0.7185],
+    LowerArmL: [0.3100, 0.4993, -0.3649, 0.7221],
+    UpperArmR: [0.0436, 0.8046, 0.0575, 0.5895],
+    LowerArmR: [0.2578, -0.5525, 0.4427, 0.6575],
     UpperLegR: [0.9795, -0.0257, 0.1373, 0.1449],
     LowerLegR: [0.2772, 0.0000, 0.0000, 0.9608],
     UpperLegL: [0.9855, 0.0176, -0.0843, 0.1461],
     LowerLegL: [0.2772, 0.0000, 0.0000, 0.9608],
+    FootR:     [0.0000, 0.6955, 0.7185, 0.0000],
   };
 
-  // Reference poses from WalkJump animation (known to look correct):
-  //   UpperLeg.R forward (t=0.500): [0.6567, -0.0318, 0.2264, 0.7187]
-  //   UpperLeg.R most forward (t=0.417): [0.7039, 0.0508, 0.3645, 0.6075]
-  //   LowerLeg.R nearly straight (t=0.333): [0.1534, 0, 0, 0.9882]
-  //   LowerLeg.R very bent (t=0.125): [0.7983, 0, 0, 0.6022]
-  //   Foot.R flexed (t=0.417): [0, 0.9310, 0.3651, 0]
-  //   Foot.R rest: [0, 0.6955, 0.7185, 0]
-
-  // Kick target poses — extrapolated beyond WalkJump range for a high front kick
+  // Kick target poses — extracted from WalkJump, Jump, Punch, and extrapolated.
+  // Poses are exaggerated beyond reference animations for a dramatic front kick.
   const kick = {
-    // Chamber: knee raised high, thigh ~60° forward (between walk forward values)
-    UpperLegR_chamber: [0.7039, 0.0508, 0.3645, 0.6075],
-    // Extend: thigh horizontal, leg fully out (extrapolated beyond WalkJump max)
-    UpperLegR_extend:  [0.5000, -0.0100, 0.2800, 0.8192],
+    // --- Kicking leg (right) ---
+    // Chamber: knee raised high, thigh ~70° forward
+    UpperLegR_chamber: [0.6200, 0.0500, 0.3800, 0.6800],
+    // Extend: thigh nearly horizontal, leg fully snapped out (high front kick)
+    UpperLegR_extend:  [0.3800, -0.0200, 0.3200, 0.8680],
     // Knee very bent during chamber
-    LowerLegR_chamber: [0.7983, 0.0000, 0.0000, 0.6022],
-    // Knee nearly straight during extend
-    LowerLegR_extend:  [0.0872, 0.0000, 0.0000, 0.9962],
+    LowerLegR_chamber: [0.8200, 0.0000, 0.0000, 0.5724],
+    // Knee fully straight during extend (snap kick)
+    LowerLegR_extend:  [0.0400, 0.0000, 0.0000, 0.9992],
     // Foot flexed for impact
     FootR_chamber:     [0.0000, 0.8145, 0.5802, 0.0000],
-    FootR_extend:      [0.0000, 0.9310, 0.3651, 0.0000],
-    // Foot rest
-    FootR_rest:        [0.0000, 0.6955, 0.7185, 0.0000],
+    FootR_extend:      [0.0000, 0.9600, 0.2800, 0.0000],
+
+    // --- Body lean (backward counterbalance) ---
+    // Slight lean during chamber
+    Body_chamber:      [-0.0800, 0.0000, 0.0000, 0.9968],
+    // Strong lean at full extension — sells the power of the kick
+    Body_extend:       [-0.1800, 0.0300, 0.0000, 0.9832],
+
+    // --- Head compensates to stay looking forward ---
+    Head_kick:         [0.0800, -0.0029, -0.0013, 0.9968],
+
+    // --- Left arm (guard position, pulled in tighter) ---
+    UpperArmL_kick:    [0.2299, -0.7727, -0.0876, 0.5852],
+    LowerArmL_kick:    [0.1468, 0.5207, -0.6558, 0.5265],
+
+    // --- Right arm (counterbalance, swings back and down) ---
+    UpperArmR_kick:    [-0.2000, 0.6500, -0.3000, 0.6700],
+    LowerArmR_kick:    [0.0330, -0.6908, 0.2646, 0.6721],
+
+    // --- Plant leg (left) bends more for stability/grounding ---
+    UpperLegL_plant:   [0.9500, 0.0200, -0.1000, 0.2950],
+    LowerLegL_plant:   [0.4000, 0.0000, -0.0000, 0.9165],
   };
 
   // Keyframe times: rest, chamber, extend, hold, retract
-  const times = [0, 0.15, 0.25, 0.35, 0.5];
+  const times = [0, 0.10, 0.18, 0.25, 0.50];
 
   const tracks = [
-    // Right upper leg: raise thigh for chamber, then extend forward
+    // --- KICKING LEG (right) ---
     new THREE.QuaternionKeyframeTrack('UpperLegR.quaternion', times, [
       ...idle.UpperLegR,
       ...kick.UpperLegR_chamber,
@@ -89,7 +110,6 @@ function createKickClip() {
       ...kick.UpperLegR_extend,
       ...idle.UpperLegR,
     ]),
-    // Right lower leg: bend knee for chamber, straighten on extend
     new THREE.QuaternionKeyframeTrack('LowerLegR.quaternion', times, [
       ...idle.LowerLegR,
       ...kick.LowerLegR_chamber,
@@ -97,27 +117,77 @@ function createKickClip() {
       ...kick.LowerLegR_extend,
       ...idle.LowerLegR,
     ]),
-    // Right foot: flex for impact
     new THREE.QuaternionKeyframeTrack('FootR.quaternion', times, [
-      ...kick.FootR_rest,
+      ...idle.FootR,
       ...kick.FootR_chamber,
       ...kick.FootR_extend,
       ...kick.FootR_extend,
-      ...kick.FootR_rest,
+      ...idle.FootR,
     ]),
-    // Left leg (plant): slight forward lean for stability
+
+    // --- BODY (lean back for counterbalance) ---
+    new THREE.QuaternionKeyframeTrack('Body.quaternion', times, [
+      ...idle.Body,
+      ...kick.Body_chamber,
+      ...kick.Body_extend,
+      ...kick.Body_extend,
+      ...idle.Body,
+    ]),
+
+    // --- HEAD (compensate for body lean, look forward) ---
+    new THREE.QuaternionKeyframeTrack('Head.quaternion', times, [
+      ...idle.Head,
+      ...kick.Head_kick,
+      ...kick.Head_kick,
+      ...kick.Head_kick,
+      ...idle.Head,
+    ]),
+
+    // --- LEFT ARM (guard position) ---
+    new THREE.QuaternionKeyframeTrack('UpperArmL.quaternion', times, [
+      ...idle.UpperArmL,
+      ...kick.UpperArmL_kick,
+      ...kick.UpperArmL_kick,
+      ...kick.UpperArmL_kick,
+      ...idle.UpperArmL,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerArmL.quaternion', times, [
+      ...idle.LowerArmL,
+      ...kick.LowerArmL_kick,
+      ...kick.LowerArmL_kick,
+      ...kick.LowerArmL_kick,
+      ...idle.LowerArmL,
+    ]),
+
+    // --- RIGHT ARM (counterbalance, swing back) ---
+    new THREE.QuaternionKeyframeTrack('UpperArmR.quaternion', times, [
+      ...idle.UpperArmR,
+      ...kick.UpperArmR_kick,
+      ...kick.UpperArmR_kick,
+      ...kick.UpperArmR_kick,
+      ...idle.UpperArmR,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerArmR.quaternion', times, [
+      ...idle.LowerArmR,
+      ...kick.LowerArmR_kick,
+      ...kick.LowerArmR_kick,
+      ...kick.LowerArmR_kick,
+      ...idle.LowerArmR,
+    ]),
+
+    // --- PLANT LEG (left, slight bend for stability) ---
     new THREE.QuaternionKeyframeTrack('UpperLegL.quaternion', times, [
       ...idle.UpperLegL,
-      ...idle.UpperLegL,
-      ...idle.UpperLegL,
-      ...idle.UpperLegL,
+      ...kick.UpperLegL_plant,
+      ...kick.UpperLegL_plant,
+      ...kick.UpperLegL_plant,
       ...idle.UpperLegL,
     ]),
     new THREE.QuaternionKeyframeTrack('LowerLegL.quaternion', times, [
       ...idle.LowerLegL,
-      ...idle.LowerLegL,
-      ...idle.LowerLegL,
-      ...idle.LowerLegL,
+      ...kick.LowerLegL_plant,
+      ...kick.LowerLegL_plant,
+      ...kick.LowerLegL_plant,
       ...idle.LowerLegL,
     ]),
   ];
@@ -324,12 +394,14 @@ export function updateFighter(fighterId, fighter) {
     } else if (fighter.state === 'Block_Recovery') {
       currentAction.timeScale = 2.0;
     } else if (fighter.state === 'Kick_Startup') {
-      // Play the chamber portion (0 → 0.15s of the clip)
-      currentAction.timeScale = 1.0;
+      // Play through chamber into extension (clip 0→~0.17 in 0.083s real)
+      currentAction.timeScale = 2.0;
     } else if (fighter.state === 'Kick_Active') {
-      // Freeze at full leg extension
-      currentAction.timeScale = 0;
-      currentAction.time = 0.25;
+      // Slow crawl through the extension hold (dynamic, not frozen)
+      currentAction.timeScale = 0.3;
+    } else if (fighter.state === 'Kick_Recovery') {
+      // Fast retract back to idle
+      currentAction.timeScale = 2.5;
     } else if (fighter.state.includes('Startup')) {
       currentAction.timeScale = 1.5;
     } else if (fighter.state.includes('Recovery')) {
