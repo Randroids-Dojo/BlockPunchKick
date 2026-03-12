@@ -60,42 +60,37 @@ function createKickClip() {
     FootR:     [0.0000, 0.6955, 0.7185, 0.0000],
   };
 
-  // Kick target poses — extracted from WalkJump, Jump, Punch, and extrapolated.
-  // Poses are exaggerated beyond reference animations for a dramatic front kick.
+  // Kick target poses — ALL values taken directly from WalkJump animation keyframes.
+  // Chamber = WalkJump t=0.125, Extension = WalkJump t=0.333-0.417
   const kick = {
-    // --- Kicking leg (right) ---
-    // Chamber: knee raised high, thigh ~70° forward
-    UpperLegR_chamber: [0.6200, 0.0500, 0.3800, 0.6800],
-    // Extend: thigh nearly horizontal, leg fully snapped out (high front kick)
-    UpperLegR_extend:  [0.3800, -0.0200, 0.3200, 0.8680],
-    // Knee very bent during chamber
-    LowerLegR_chamber: [0.8200, 0.0000, 0.0000, 0.5724],
-    // Knee fully straight during extend (snap kick)
-    LowerLegR_extend:  [0.0400, 0.0000, 0.0000, 0.9992],
-    // Foot flexed for impact
-    FootR_chamber:     [0.0000, 0.8145, 0.5802, 0.0000],
-    FootR_extend:      [0.0000, 0.9600, 0.2800, 0.0000],
+    // --- Kicking leg (right) — from WalkJump UpperLegR ---
+    UpperLegR_chamber: [0.7776, -0.0658, 0.1176, 0.6142],  // WalkJump t=0.125
+    UpperLegR_extend:  [0.7039,  0.0508, 0.3645, 0.6075],  // WalkJump t=0.417
+    // --- Lower leg — from WalkJump LowerLegR ---
+    LowerLegR_chamber: [0.7983, 0.0000, 0.0000, 0.6022],   // WalkJump t=0.125 (bent)
+    LowerLegR_extend:  [0.1534, 0.0000, 0.0000, 0.9882],   // WalkJump t=0.333 (straight)
+    // --- Foot — from WalkJump FootR ---
+    FootR_chamber:     [0.0000, 0.8145, 0.5802, 0.0000],   // WalkJump t=0.250
+    FootR_extend:      [0.0000, 0.9310, 0.3651, 0.0000],   // WalkJump t=0.417
 
-    // --- Body lean (backward counterbalance) ---
-    // Slight lean during chamber
-    Body_chamber:      [-0.0800, 0.0000, 0.0000, 0.9968],
-    // Strong lean at full extension — sells the power of the kick
-    Body_extend:       [-0.1800, 0.0300, 0.0000, 0.9832],
+    // --- Body lean — from WalkJump Body t=0.333 ---
+    Body_chamber:      [0.0683, 0.0000, 0.0000, 0.9977],   // WalkJump t=0.125 (slight forward)
+    Body_extend:       [-0.0147, -0.0380, 0.0621, 0.9972],  // WalkJump t=0.333
 
-    // --- Head compensates to stay looking forward ---
-    Head_kick:         [0.0800, -0.0029, -0.0013, 0.9968],
+    // --- Head — from WalkJump Head ---
+    Head_kick:         [-0.0897, 0.0003, 0.0080, 0.9959],   // WalkJump t=0.417
 
-    // --- Left arm (guard position, pulled in tighter) ---
-    UpperArmL_kick:    [0.2299, -0.7727, -0.0876, 0.5852],
-    LowerArmL_kick:    [0.1468, 0.5207, -0.6558, 0.5265],
+    // --- Left arm — from WalkJump UpperArmL/LowerArmL t=0.417 ---
+    UpperArmL_kick:    [-0.3104, 0.7716, 0.3132, -0.4584],  // WalkJump t=0.417
+    LowerArmL_kick:    [0.3177, 0.4913, -0.3721, 0.7206],   // WalkJump t=0.417
 
-    // --- Right arm (counterbalance, swings back and down) ---
-    UpperArmR_kick:    [-0.2000, 0.6500, -0.3000, 0.6700],
-    LowerArmR_kick:    [0.0330, -0.6908, 0.2646, 0.6721],
+    // --- Right arm — from WalkJump UpperArmR/LowerArmR t=0.333-0.417 ---
+    UpperArmR_kick:    [-0.3765, 0.3960, -0.4760, 0.6891],  // WalkJump t=0.333
+    LowerArmR_kick:    [-0.0099, -0.6865, 0.2688, 0.6756],  // WalkJump t=0.417
 
-    // --- Plant leg (left) bends more for stability/grounding ---
-    UpperLegL_plant:   [0.9500, 0.0200, -0.1000, 0.2950],
-    LowerLegL_plant:   [0.4000, 0.0000, -0.0000, 0.9165],
+    // --- Plant leg (left) — from WalkJump UpperLegL/LowerLegL t=0.417 ---
+    UpperLegL_plant:   [0.9818, 0.0192, -0.0692, -0.1757],  // WalkJump t=0.417
+    LowerLegL_plant:   [0.6824, 0.0000, 0.0000, 0.7310],    // WalkJump t=0.417
   };
 
   // Keyframe times: rest, chamber, extend, hold, retract
