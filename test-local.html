@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" /><title>Test</title><link rel="stylesheet" href="styles.css" />
+    <script type="importmap">{"imports":{"three":"./vendor/three/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="hud">
+        <section class="hud-side"><div class="health-label">Player</div><div class="health-track"><div id="p1-health" class="health-fill player"></div></div><div id="p1-rounds" class="round-dots"></div></section>
+        <section class="hud-center"><div id="round-text" class="round-text">Round 1</div><div id="timer" class="timer">60</div><div id="announcement" class="announcement"></div></section>
+        <section class="hud-side"><div class="health-label">CPU</div><div class="health-track"><div id="p2-health" class="health-fill cpu"></div></div><div id="p2-rounds" class="round-dots"></div></section>
+      </header>
+      <canvas id="arena"></canvas>
+      <div id="stick-zone" class="stick-zone"><div id="stick" class="stick hidden"><div class="stick-knob"></div></div></div>
+      <div class="action-buttons-fixed"><button id="punch-btn" class="btn punch">Punch</button><button id="kick-btn" class="btn kick">Kick</button></div>
+    </main>
+    <script>if(window.self!==window.top)document.documentElement.classList.add('embedded');</script>
+    <script type="module" src="src/game.js"></script>
+  </body>
+</html>
