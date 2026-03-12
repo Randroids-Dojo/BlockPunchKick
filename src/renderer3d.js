@@ -60,20 +60,21 @@ function createKickClip() {
     FootR:     [0.0000, 0.6955, 0.7185, 0.0000],
   };
 
-  // Kick target poses — Punch forward-step delta (confirmed direction), scaled up.
-  // Delta from idle→Punch t=0.083 is ~48° forward. Chamber=2x, Extend=3.5x.
+  // Kick target poses — axis-preserving approach.
+  // Idle UpperLegR is ~163° around axis (0.99, -0.03, 0.14).
+  // Reducing angle raises thigh forward: 120° = chamber, 70° = extend (near horizontal).
   const kick = {
-    // --- Kicking leg (right) — scaled Punch forward delta ---
-    UpperLegR_chamber: [0.6021, -0.1219, -0.2471, 0.7494],  // 2x (~96° fwd)
-    UpperLegR_extend:  [0.0296, -0.1425, -0.4388, 0.8867],  // 3.5x (~168° fwd)
-    LowerLegR_chamber: [0.8773, 0.0000, 0.0000, 0.4799],    // 1.5x bend
-    LowerLegR_extend:  [0.0035, 0.0000, 0.0000, 1.0000],    // Fully straight
-    FootR_chamber:     [0.0000, 0.6955, 0.7185, 0.0000],    // Idle (follows leg)
-    FootR_extend:      [0.0000, 0.6955, 0.7185, 0.0000],    // Idle (follows leg)
+    // --- Kicking leg (right) — same rotation axis as idle, reduced angle ---
+    UpperLegR_chamber: [0.8573, -0.0225, 0.1202, 0.5000],  // 120° (thigh ~43° fwd)
+    UpperLegR_extend:  [0.5678, -0.0149, 0.0796, 0.8192],  // 70° (thigh ~93° fwd)
+    LowerLegR_chamber: [0.6428, 0.0000, 0.0000, 0.7660],   // 80° bend (knee tucked)
+    LowerLegR_extend:  [0.0175, 0.0000, 0.0000, 0.9998],   // ~2° (leg straight)
+    FootR_chamber:     [0.0000, 0.6955, 0.7185, 0.0000],   // Idle (child of LowerLeg)
+    FootR_extend:      [0.0000, 0.6955, 0.7185, 0.0000],   // Idle (child of LowerLeg)
 
-    // --- Body leans forward with kick ---
+    // --- Body leans slightly forward ---
     Body_chamber:      [0.0000, 0.0000, 0.0000, 1.0000],
-    Body_extend:       [0.0939, -0.0200, -0.0246, 0.9951],   // Punch t=0.250
+    Body_extend:       [-0.0436, 0.0000, 0.0000, 0.9990],  // ~5° forward lean
 
     // --- Head stays at idle ---
     Head_kick:         [-0.0309, -0.0029, -0.0013, 0.9995],
@@ -86,7 +87,7 @@ function createKickClip() {
     UpperArmR_kick:    [0.0436, 0.8046, 0.0575, 0.5895],
     LowerArmR_kick:    [0.0897, -0.7051, 0.2550, 0.6556],
 
-    // --- Plant leg (left, subtle weight shift from Punch) ---
+    // --- Plant leg (left, subtle weight shift) ---
     UpperLegL_plant:   [0.9862, 0.0398, -0.1177, 0.1096],
     LowerLegL_plant:   [0.3244, 0.0000, 0.0000, 0.9459],
   };

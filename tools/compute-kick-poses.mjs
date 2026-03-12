@@ -1,86 +1,71 @@
-// Compute kick poses by scaling up the Punch forward-step delta.
-// We know Punch t=0.083 moves the right leg forward. Scale that up for a kick.
-function quat(x, y, z, w) { return { x, y, z, w }; }
-function quatConj(q) { return quat(-q.x, -q.y, -q.z, q.w); }
-function quatMul(a, b) {
-  return quat(
-    a.x*b.w + a.w*b.x + a.y*b.z - a.z*b.y,
-    a.y*b.w + a.w*b.y + a.z*b.x - a.x*b.z,
-    a.z*b.w + a.w*b.z + a.x*b.y - a.y*b.x,
-    a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z
-  );
-}
-function quatNorm(q) {
-  const l = Math.sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
-  return quat(q.x/l, q.y/l, q.z/l, q.w/l);
-}
-function quatPow(q, power) {
-  let w = q.w;
-  let flip = false;
-  if (w < 0) { q = quat(-q.x, -q.y, -q.z, -q.w); w = -w; flip = true; }
-  const angle = 2 * Math.acos(Math.min(1, w));
-  if (angle < 0.0001) return quat(0, 0, 0, 1);
-  const sinHalf = Math.sin(angle / 2);
-  const ax = q.x / sinHalf, ay = q.y / sinHalf, az = q.z / sinHalf;
-  const newAngle = angle * power;
-  const s = Math.sin(newAngle / 2);
-  const c = Math.cos(newAngle / 2);
-  return quat(ax * s, ay * s, az * s, c);
-}
-function fmt(q) { return `[${q.x.toFixed(4)}, ${q.y.toFixed(4)}, ${q.z.toFixed(4)}, ${q.w.toFixed(4)}]`; }
+// Compute kick poses by rotating the UpperLegR around its IDLE AXIS with reduced angle.
+// The idle thigh is a ~163° rotation around axis (0.99, -0.03, 0.14).
+// A front kick reduces this angle so the thigh points more forward (horizontal).
 
-// Game idle (confirmed same as Punch t=0.000)
-const idle = {
-  UpperLegR: quat(0.9795, -0.0257, 0.1373, 0.1449),
-  LowerLegR: quat(0.2772, 0.0000, 0.0000, 0.9608),
+function fmt(x, y, z, w) {
+  return `[${x.toFixed(4)}, ${y.toFixed(4)}, ${z.toFixed(4)}, ${w.toFixed(4)}]`;
+}
+
+// Idle UpperLegR: [0.9795, -0.0257, 0.1373, 0.1449]
+const idle = { x: 0.9795, y: -0.0257, z: 0.1373, w: 0.1449 };
+
+// Extract idle rotation axis and angle
+const idleAngle = 2 * Math.acos(idle.w); // ~163.4°
+const sinHalf = Math.sin(idleAngle / 2);
+const axis = {
+  x: idle.x / sinHalf,
+  y: idle.y / sinHalf,
+  z: idle.z / sinHalf,
 };
+console.log(`Idle angle: ${(idleAngle * 180 / Math.PI).toFixed(1)}°`);
+console.log(`Idle axis: (${axis.x.toFixed(4)}, ${axis.y.toFixed(4)}, ${axis.z.toFixed(4)})`);
 
-// Punch t=0.083 — CONFIRMED forward step (visible in screenshots)
-const punchFwd = {
-  UpperLegR: quat(0.8661, -0.0808, -0.0601, 0.4897),
-  LowerLegR: quat(0.7223, 0.0000, 0.0000, 0.6916),
-};
-
-// Compute delta: Punch_fwd * conj(idle)
-const delta_upper = quatNorm(quatMul(punchFwd.UpperLegR, quatConj(idle.UpperLegR)));
-const delta_lower = quatNorm(quatMul(punchFwd.LowerLegR, quatConj(idle.LowerLegR)));
-
-const angle_upper = 2 * Math.acos(Math.min(1, Math.abs(delta_upper.w))) * 180 / Math.PI;
-const angle_lower = 2 * Math.acos(Math.min(1, Math.abs(delta_lower.w))) * 180 / Math.PI;
-console.log(`UpperLegR delta: ${fmt(delta_upper)}  angle: ${angle_upper.toFixed(1)}°`);
-console.log(`LowerLegR delta: ${fmt(delta_lower)}  angle: ${angle_lower.toFixed(1)}°`);
-
-// Scale up for kick: chamber = 2x punch step, extend = 3.5x punch step
-for (const scale of [1, 1.5, 2, 2.5, 3, 3.5]) {
-  const scaled = quatPow(delta_upper, scale);
-  const result = quatNorm(quatMul(scaled, idle.UpperLegR));
-  console.log(`UpperLegR at ${scale}x: ${fmt(result)}`);
+// Create quaternion from same axis but different angle
+function fromAxisAngle(ax, ay, az, angleDeg) {
+  const rad = angleDeg * Math.PI / 180;
+  const s = Math.sin(rad / 2);
+  const c = Math.cos(rad / 2);
+  return { x: ax * s, y: ay * s, z: az * s, w: c };
 }
 
-console.log('\n--- Final kick values ---');
-// Chamber: 2x punch forward step
-const delta_chamber = quatPow(delta_upper, 2);
-const UpperLegR_chamber = quatNorm(quatMul(delta_chamber, idle.UpperLegR));
-// Extension: 3.5x punch forward step
-const delta_extend = quatPow(delta_upper, 3.5);
-const UpperLegR_extend = quatNorm(quatMul(delta_extend, idle.UpperLegR));
-// Lower leg: bend more for chamber, straight for extend
-const delta_lower_chamber = quatPow(delta_lower, 1.5);
-const LowerLegR_chamber = quatNorm(quatMul(delta_lower_chamber, idle.LowerLegR));
+// Test various angles
+console.log('\n--- UpperLegR at different angles (same axis as idle) ---');
+for (const angle of [163, 140, 120, 100, 80, 60]) {
+  const q = fromAxisAngle(axis.x, axis.y, axis.z, angle);
+  console.log(`  ${angle}°: ${fmt(q.x, q.y, q.z, q.w)}`);
+}
 
-console.log(`UpperLegR_chamber (2x): ${fmt(UpperLegR_chamber)}`);
-console.log(`UpperLegR_extend (3.5x): ${fmt(UpperLegR_extend)}`);
-console.log(`LowerLegR_chamber (1.5x): ${fmt(LowerLegR_chamber)}`);
+// Chamber: ~120° (thigh raised ~43° from hanging position)
+// Extend: ~70° (thigh nearly horizontal, raised ~93° from hanging)
+const chamber_angle = 120;
+const extend_angle = 70;
 
-console.log(`\n  const kick = {
-    UpperLegR_chamber: ${fmt(UpperLegR_chamber)},
-    UpperLegR_extend:  ${fmt(UpperLegR_extend)},
-    LowerLegR_chamber: ${fmt(LowerLegR_chamber)},
-    LowerLegR_extend:  [0.0035, 0.0000, 0.0000, 1.0000],
+const UpperLegR_chamber = fromAxisAngle(axis.x, axis.y, axis.z, chamber_angle);
+const UpperLegR_extend = fromAxisAngle(axis.x, axis.y, axis.z, extend_angle);
+
+console.log(`\n--- Final kick leg poses ---`);
+console.log(`Chamber (${chamber_angle}°): ${fmt(UpperLegR_chamber.x, UpperLegR_chamber.y, UpperLegR_chamber.z, UpperLegR_chamber.w)}`);
+console.log(`Extend  (${extend_angle}°):  ${fmt(UpperLegR_extend.x, UpperLegR_extend.y, UpperLegR_extend.z, UpperLegR_extend.w)}`);
+
+// LowerLegR: only rotates around X (confirmed from animation data)
+// Idle: [0.2772, 0, 0, 0.9608] = ~32° bend
+// Bent for chamber: ~80° bend
+// Straight for extend: ~0°
+const lowerChamber = fromAxisAngle(1, 0, 0, 80);
+const lowerExtend = fromAxisAngle(1, 0, 0, 2);
+console.log(`LowerLegR_chamber (80° bend): ${fmt(lowerChamber.x, lowerChamber.y, lowerChamber.z, lowerChamber.w)}`);
+console.log(`LowerLegR_extend  (2° straight): ${fmt(lowerExtend.x, lowerExtend.y, lowerExtend.z, lowerExtend.w)}`);
+
+console.log(`\n=== JS Object ===`);
+console.log(`  const kick = {
+    UpperLegR_chamber: ${fmt(UpperLegR_chamber.x, UpperLegR_chamber.y, UpperLegR_chamber.z, UpperLegR_chamber.w)},
+    UpperLegR_extend:  ${fmt(UpperLegR_extend.x, UpperLegR_extend.y, UpperLegR_extend.z, UpperLegR_extend.w)},
+    LowerLegR_chamber: ${fmt(lowerChamber.x, lowerChamber.y, lowerChamber.z, lowerChamber.w)},
+    LowerLegR_extend:  ${fmt(lowerExtend.x, lowerExtend.y, lowerExtend.z, lowerExtend.w)},
     FootR_chamber:     [0.0000, 0.6955, 0.7185, 0.0000],
     FootR_extend:      [0.0000, 0.6955, 0.7185, 0.0000],
     Body_chamber:      [0.0000, 0.0000, 0.0000, 1.0000],
-    Body_extend:       [0.0939, -0.0200, -0.0246, 0.9951],
+    Body_extend:       [-0.0436, 0.0000, 0.0000, 0.9990],
     Head_kick:         [-0.0309, -0.0029, -0.0013, 0.9995],
     UpperArmL_kick:    [0.2299, -0.7727, -0.0876, 0.5852],
     LowerArmL_kick:    [0.1468, 0.5207, -0.6558, 0.5265],
