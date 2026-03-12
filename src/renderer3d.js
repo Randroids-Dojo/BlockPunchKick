@@ -40,48 +40,134 @@ const BLEND_TIME = 0.08;
 
 // Build a procedural front-kick AnimationClip from bone quaternion keyframes.
 // The robot kicks with its right leg: chamber (knee up) -> extend -> retract.
+// Full-body animation: torso leans back, arms counterbalance, plant leg bends.
 // Bone names are sanitized (dots stripped) to match THREE.js PropertyBinding.
 // All quaternion values are ABSOLUTE bone-local poses extracted/extrapolated from
-// the model's working animations (Idle, WalkJump) to ensure correct deformation.
-function createKickClip() {
+// the model's working animations (Idle, WalkJump, Punch, Jump).
+function createKickClip(model) {
   // Idle animation first-frame poses (the starting/ending pose for blending)
   const idle = {
+    Body:      [0.0000, 0.0000, -0.0000, 1.0000],
+    Head:      [-0.0309, -0.0029, -0.0013, 0.9995],
+    UpperArmL: [-0.0546, -0.6899, 0.0692, 0.7185],
+    LowerArmL: [0.3100, 0.4993, -0.3649, 0.7221],
+    UpperArmR: [0.0436, 0.8046, 0.0575, 0.5895],
+    LowerArmR: [0.2578, -0.5525, 0.4427, 0.6575],
     UpperLegR: [0.9795, -0.0257, 0.1373, 0.1449],
     LowerLegR: [0.2772, 0.0000, 0.0000, 0.9608],
     UpperLegL: [0.9855, 0.0176, -0.0843, 0.1461],
     LowerLegL: [0.2772, 0.0000, 0.0000, 0.9608],
+    FootR:     [0.0000, 0.6955, 0.7185, 0.0000],
   };
 
-  // Reference poses from WalkJump animation (known to look correct):
-  //   UpperLeg.R forward (t=0.500): [0.6567, -0.0318, 0.2264, 0.7187]
-  //   UpperLeg.R most forward (t=0.417): [0.7039, 0.0508, 0.3645, 0.6075]
-  //   LowerLeg.R nearly straight (t=0.333): [0.1534, 0, 0, 0.9882]
-  //   LowerLeg.R very bent (t=0.125): [0.7983, 0, 0, 0.6022]
-  //   Foot.R flexed (t=0.417): [0, 0.9310, 0.3651, 0]
-  //   Foot.R rest: [0, 0.6955, 0.7185, 0]
-
-  // Kick target poses — extrapolated beyond WalkJump range for a high front kick
+  // Kick target poses — axis-preserving approach.
+  // Idle UpperLegR is ~163° around axis (0.99, -0.03, 0.14).
+  // Reducing angle raises thigh forward: 120° = chamber, 70° = extend (near horizontal).
   const kick = {
-    // Chamber: knee raised high, thigh ~60° forward (between walk forward values)
-    UpperLegR_chamber: [0.7039, 0.0508, 0.3645, 0.6075],
-    // Extend: thigh horizontal, leg fully out (extrapolated beyond WalkJump max)
-    UpperLegR_extend:  [0.5000, -0.0100, 0.2800, 0.8192],
-    // Knee very bent during chamber
-    LowerLegR_chamber: [0.7983, 0.0000, 0.0000, 0.6022],
-    // Knee nearly straight during extend
-    LowerLegR_extend:  [0.0872, 0.0000, 0.0000, 0.9962],
-    // Foot flexed for impact
-    FootR_chamber:     [0.0000, 0.8145, 0.5802, 0.0000],
-    FootR_extend:      [0.0000, 0.9310, 0.3651, 0.0000],
-    // Foot rest
-    FootR_rest:        [0.0000, 0.6955, 0.7185, 0.0000],
+    // --- Kicking leg (right) — same rotation axis as idle, reduced angle ---
+    UpperLegR_chamber: [0.8573, -0.0225, 0.1202, 0.5000],  // 120° (thigh ~43° fwd)
+    UpperLegR_extend:  [0.5678, -0.0149, 0.0796, 0.8192],  // 70° (thigh ~93° fwd)
+    LowerLegR_chamber: [0.6428, 0.0000, 0.0000, 0.7660],   // 80° bend (knee tucked)
+    LowerLegR_extend:  [0.0175, 0.0000, 0.0000, 0.9998],   // ~2° (leg straight)
+    FootR_chamber:     [0.0000, 0.6955, 0.7185, 0.0000],   // Idle (child of LowerLeg)
+    FootR_extend:      [0.0000, 0.6955, 0.7185, 0.0000],   // Idle (child of LowerLeg)
+
+    // --- Body leans slightly forward ---
+    Body_chamber:      [0.0000, 0.0000, 0.0000, 1.0000],
+    Body_extend:       [-0.0436, 0.0000, 0.0000, 0.9990],  // ~5° forward lean
+
+    // --- Head stays at idle ---
+    Head_kick:         [-0.0309, -0.0029, -0.0013, 0.9995],
+
+    // --- Left arm (Punch guard position) ---
+    UpperArmL_kick:    [0.2299, -0.7727, -0.0876, 0.5852],
+    LowerArmL_kick:    [0.1468, 0.5207, -0.6558, 0.5265],
+
+    // --- Right arm (stays at idle) ---
+    UpperArmR_kick:    [0.0436, 0.8046, 0.0575, 0.5895],
+    LowerArmR_kick:    [0.0897, -0.7051, 0.2550, 0.6556],
+
+    // --- Plant leg (left, subtle weight shift) ---
+    UpperLegL_plant:   [0.9862, 0.0398, -0.1177, 0.1096],
+    LowerLegL_plant:   [0.3244, 0.0000, 0.0000, 0.9459],
   };
+
+  // Compute FootR positions via forward kinematics.
+  // FootR is parented to root Bone (IK rig), so we must explicitly position it.
+  // Temporarily pose the leg bones, update matrices, and read the foot endpoint.
+  const footRIdlePos = [-0.0064, 0.0003, 0.0006]; // default rest position
+  let footRChamberPos = footRIdlePos;
+  let footRExtendPos = footRIdlePos;
+
+  if (model) {
+    const bodyBone = model.getObjectByName('Body');
+    const upperLegR = model.getObjectByName('UpperLegR');
+    const lowerLegR = model.getObjectByName('LowerLegR');
+    const footR = model.getObjectByName('FootR');
+    const rootBone = model.getObjectByName('Bone');
+
+    if (upperLegR && lowerLegR && footR && rootBone) {
+      // Save current quaternions
+      const savedUpper = upperLegR.quaternion.clone();
+      const savedLower = lowerLegR.quaternion.clone();
+      const savedBody = bodyBone ? bodyBone.quaternion.clone() : null;
+
+      // Helper: compute foot position for a given leg pose
+      function computeFootPos(upperQ, lowerQ, bodyQ) {
+        if (bodyBone && bodyQ) bodyBone.quaternion.set(...bodyQ);
+        upperLegR.quaternion.set(...upperQ);
+        lowerLegR.quaternion.set(...lowerQ);
+        // Update the full chain from root
+        rootBone.updateWorldMatrix(true, true);
+        // Get the world position of the end of LowerLegR
+        // The shin endpoint is at LowerLegR's position + shin length along local Y
+        // We approximate by using the foot's rest offset from LowerLegR world pos
+        const lowerWorld = new THREE.Vector3();
+        lowerLegR.getWorldPosition(lowerWorld);
+        // Shin direction: local +Y transformed by LowerLegR's world rotation
+        const shinDir = new THREE.Vector3(0, 1, 0);
+        const lowerWorldQuat = new THREE.Quaternion();
+        lowerLegR.getWorldQuaternion(lowerWorldQuat);
+        shinDir.applyQuaternion(lowerWorldQuat);
+        // Shin length: approximate from rest pose (foot rest pos - lowerLeg rest pos in world)
+        const footRestWorld = new THREE.Vector3();
+        footR.getWorldPosition(footRestWorld);
+        const shinLength = footRestWorld.distanceTo(lowerWorld);
+        // Foot world position = end of shin
+        const footWorld = lowerWorld.clone().add(shinDir.multiplyScalar(shinLength));
+        // Convert to FootR parent (rootBone) local space
+        const rootInverse = new THREE.Matrix4().copy(rootBone.matrixWorld).invert();
+        footWorld.applyMatrix4(rootInverse);
+        return [footWorld.x, footWorld.y, footWorld.z];
+      }
+
+      // Compute for idle pose (verification)
+      const idlePos = computeFootPos(idle.UpperLegR, idle.LowerLegR, idle.Body);
+
+      // Compute for chamber
+      footRChamberPos = computeFootPos(
+        kick.UpperLegR_chamber, kick.LowerLegR_chamber, kick.Body_chamber
+      );
+
+      // Compute for extend
+      footRExtendPos = computeFootPos(
+        kick.UpperLegR_extend, kick.LowerLegR_extend, kick.Body_extend
+      );
+
+      // Restore original quaternions
+      upperLegR.quaternion.copy(savedUpper);
+      lowerLegR.quaternion.copy(savedLower);
+      if (bodyBone && savedBody) bodyBone.quaternion.copy(savedBody);
+      rootBone.updateWorldMatrix(true, true);
+
+    }
+  }
 
   // Keyframe times: rest, chamber, extend, hold, retract
-  const times = [0, 0.15, 0.25, 0.35, 0.5];
+  const times = [0, 0.10, 0.18, 0.25, 0.50];
 
   const tracks = [
-    // Right upper leg: raise thigh for chamber, then extend forward
+    // --- KICKING LEG (right) ---
     new THREE.QuaternionKeyframeTrack('UpperLegR.quaternion', times, [
       ...idle.UpperLegR,
       ...kick.UpperLegR_chamber,
@@ -89,7 +175,6 @@ function createKickClip() {
       ...kick.UpperLegR_extend,
       ...idle.UpperLegR,
     ]),
-    // Right lower leg: bend knee for chamber, straighten on extend
     new THREE.QuaternionKeyframeTrack('LowerLegR.quaternion', times, [
       ...idle.LowerLegR,
       ...kick.LowerLegR_chamber,
@@ -97,27 +182,85 @@ function createKickClip() {
       ...kick.LowerLegR_extend,
       ...idle.LowerLegR,
     ]),
-    // Right foot: flex for impact
     new THREE.QuaternionKeyframeTrack('FootR.quaternion', times, [
-      ...kick.FootR_rest,
+      ...idle.FootR,
       ...kick.FootR_chamber,
       ...kick.FootR_extend,
       ...kick.FootR_extend,
-      ...kick.FootR_rest,
+      ...idle.FootR,
     ]),
-    // Left leg (plant): slight forward lean for stability
+    // FootR POSITION track — IK rig requires explicit positioning
+    new THREE.VectorKeyframeTrack('FootR.position', times, [
+      ...footRIdlePos,
+      ...footRChamberPos,
+      ...footRExtendPos,
+      ...footRExtendPos,
+      ...footRIdlePos,
+    ]),
+
+    // --- BODY (lean back for counterbalance) ---
+    new THREE.QuaternionKeyframeTrack('Body.quaternion', times, [
+      ...idle.Body,
+      ...kick.Body_chamber,
+      ...kick.Body_extend,
+      ...kick.Body_extend,
+      ...idle.Body,
+    ]),
+
+    // --- HEAD (compensate for body lean, look forward) ---
+    new THREE.QuaternionKeyframeTrack('Head.quaternion', times, [
+      ...idle.Head,
+      ...kick.Head_kick,
+      ...kick.Head_kick,
+      ...kick.Head_kick,
+      ...idle.Head,
+    ]),
+
+    // --- LEFT ARM (guard position) ---
+    new THREE.QuaternionKeyframeTrack('UpperArmL.quaternion', times, [
+      ...idle.UpperArmL,
+      ...kick.UpperArmL_kick,
+      ...kick.UpperArmL_kick,
+      ...kick.UpperArmL_kick,
+      ...idle.UpperArmL,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerArmL.quaternion', times, [
+      ...idle.LowerArmL,
+      ...kick.LowerArmL_kick,
+      ...kick.LowerArmL_kick,
+      ...kick.LowerArmL_kick,
+      ...idle.LowerArmL,
+    ]),
+
+    // --- RIGHT ARM (counterbalance, swing back) ---
+    new THREE.QuaternionKeyframeTrack('UpperArmR.quaternion', times, [
+      ...idle.UpperArmR,
+      ...kick.UpperArmR_kick,
+      ...kick.UpperArmR_kick,
+      ...kick.UpperArmR_kick,
+      ...idle.UpperArmR,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerArmR.quaternion', times, [
+      ...idle.LowerArmR,
+      ...kick.LowerArmR_kick,
+      ...kick.LowerArmR_kick,
+      ...kick.LowerArmR_kick,
+      ...idle.LowerArmR,
+    ]),
+
+    // --- PLANT LEG (left, slight bend for stability) ---
     new THREE.QuaternionKeyframeTrack('UpperLegL.quaternion', times, [
       ...idle.UpperLegL,
-      ...idle.UpperLegL,
-      ...idle.UpperLegL,
-      ...idle.UpperLegL,
+      ...kick.UpperLegL_plant,
+      ...kick.UpperLegL_plant,
+      ...kick.UpperLegL_plant,
       ...idle.UpperLegL,
     ]),
     new THREE.QuaternionKeyframeTrack('LowerLegL.quaternion', times, [
       ...idle.LowerLegL,
-      ...idle.LowerLegL,
-      ...idle.LowerLegL,
-      ...idle.LowerLegL,
+      ...kick.LowerLegL_plant,
+      ...kick.LowerLegL_plant,
+      ...kick.LowerLegL_plant,
       ...idle.LowerLegL,
     ]),
   ];
@@ -203,7 +346,7 @@ export async function initScene(canvas) {
   }
 
   // Register procedural kick clip for player
-  const kickClip = createKickClip();
+  const kickClip = createKickClip(playerModel);
   const playerKickAction = playerMixer.clipAction(kickClip);
   playerKickAction.setLoop(THREE.LoopOnce);
   playerKickAction.clampWhenFinished = true;
@@ -324,12 +467,14 @@ export function updateFighter(fighterId, fighter) {
     } else if (fighter.state === 'Block_Recovery') {
       currentAction.timeScale = 2.0;
     } else if (fighter.state === 'Kick_Startup') {
-      // Play the chamber portion (0 → 0.15s of the clip)
-      currentAction.timeScale = 1.0;
+      // Play through chamber into extension (clip 0→~0.17 in 0.083s real)
+      currentAction.timeScale = 2.0;
     } else if (fighter.state === 'Kick_Active') {
-      // Freeze at full leg extension
-      currentAction.timeScale = 0;
-      currentAction.time = 0.25;
+      // Slow crawl through the extension hold (dynamic, not frozen)
+      currentAction.timeScale = 0.3;
+    } else if (fighter.state === 'Kick_Recovery') {
+      // Fast retract back to idle
+      currentAction.timeScale = 2.5;
     } else if (fighter.state.includes('Startup')) {
       currentAction.timeScale = 1.5;
     } else if (fighter.state.includes('Recovery')) {
