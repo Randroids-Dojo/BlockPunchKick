@@ -14,15 +14,6 @@ const FRAMES = {
   hitStopPunch: 7,
   hitStopKick: 10,
   hitStopBlocked: 9,
-  chargedPunchStartup: 10,
-  chargedPunchActive: 5,
-  chargedPunchRecovery: 14,
-  chargedKickStartup: 14,
-  chargedKickActive: 6,
-  chargedKickRecovery: 18,
-  chargedHitStopPunch: 12,
-  chargedHitStopKick: 16,
-  chargedHitStopBlocked: 14,
 };
 
 const CONFIG = {
@@ -43,9 +34,7 @@ const CONFIG = {
   },
   punch: { damage: 8, range: 340, proximityRange: 480, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 600 },
   kick: { damage: 12, range: 360, proximityRange: 510, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 500 },
-  chargedPunch: { damage: 14, range: 360, proximityRange: 500, yRange: 90, hitStun: 28, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 800 },
-  chargedKick: { damage: 20, range: 380, proximityRange: 530, yRange: 100, hitStun: 34, blockStun: 22, pushOnHit: 110, pushOnBlock: 60, lungeForce: 700 },
-  chargeThreshold: 24,
+  attackCooldown: 18,
   chipDamage: 1,
 };
 
@@ -62,7 +51,7 @@ class Fighter {
     this.facing = 1; this.state = State.Idle; this.stateFrame = 0;
     this.health = CONFIG.healthMax; this.roundWins = 0; this.blockHeld = false;
     this.buffer = [];
-    this.chargeType = null; this.chargeFrames = 0; this.isCharged = false;
+    this.attackCooldown = 0;
     this.axisX = 0; this.axisY = 0;
     this.vx = 0; this.vy = 0;
     this.impulseX = 0; this.impulseY = 0;
@@ -75,7 +64,7 @@ const world = {
   frame: 0, round: 1, timer: CONFIG.roundSeconds,
   player: new Fighter('player', '#2d9bff', 350),
   cpu: new Fighter('cpu', '#ff5353', 930),
-  input: { left: false, right: false, up: false, down: false, punch: false, kick: false, punchHeld: false, kickHeld: false, punchUp: false, kickUp: false },
+  input: { left: false, right: false, up: false, down: false, punch: false, kick: false },
   hitStopFrames: 0, paused: false,
 };
 
@@ -98,40 +87,22 @@ function setInput(key, val) {
   const mapped = keyMap[key] ?? keyMap[key.toLowerCase()];
   if (!mapped) return;
   if (mapped === 'punch' || mapped === 'kick') {
-    if (val) {
-      world.input[mapped] = true;
-      world.input[mapped + 'Held'] = true;
-    } else {
-      if (world.input[mapped + 'Held']) {
-        world.input[mapped + 'Held'] = false;
-        world.input[mapped + 'Up'] = true;
-      }
-    }
+    // Only register on key down, ignore repeats/holds
+    if (val) world.input[mapped] = true;
   } else world.input[mapped] = val;
 }
 
 function setupMobileControls() {
-  // Hold-to-charge for action buttons
-  const bindCharge = (id, field) => {
+  // Single-tap attack buttons
+  const bindAttack = (id, field) => {
     const el = document.getElementById(id);
-    const start = (e) => {
+    el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       world.input[field] = true;
-      world.input[field + 'Held'] = true;
-    };
-    const stop = () => {
-      if (world.input[field + 'Held']) {
-        world.input[field + 'Held'] = false;
-        world.input[field + 'Up'] = true;
-      }
-    };
-    el.addEventListener('pointerdown', start);
-    el.addEventListener('pointerup', stop);
-    el.addEventListener('pointercancel', stop);
-    el.addEventListener('pointerleave', stop);
+    });
   };
-  bindCharge('punch-btn', 'punch');
-  bindCharge('kick-btn', 'kick');
+  bindAttack('punch-btn', 'punch');
+  bindAttack('kick-btn', 'kick');
 
   // Floating joystick — left half of screen
   const zone = document.getElementById('stick-zone');
@@ -183,9 +154,10 @@ function setupMobileControls() {
 }
 setupMobileControls();
 
-function enqueueAction(fighter, action, charged = false) {
+function enqueueAction(fighter, action) {
   if (fighter.buffer.length > 2) return;
-  fighter.buffer.push({ action, charged, expires: world.frame + 5 });
+  if (fighter.attackCooldown > 0) return;
+  fighter.buffer.push({ action, expires: world.frame + 5 });
 }
 
 function consumeBufferedAction(fighter) {
@@ -194,16 +166,12 @@ function consumeBufferedAction(fighter) {
   // Don't consume attack actions while actively blocking
   if (fighter.blockHeld || fighter.state === State.Block) return;
   const next = fighter.buffer.shift();
-  fighter.isCharged = next.charged || false;
   if (next.action === 'punch') setState(fighter, State.PunchStartup);
   if (next.action === 'kick') setState(fighter, State.KickStartup);
+  fighter.attackCooldown = CONFIG.attackCooldown;
 }
 
 function setState(f, next) {
-  if (next === State.HitStun || next === State.BlockStun || next === State.KO) {
-    f.isCharged = false; f.chargeType = null; f.chargeFrames = 0;
-  }
-  if (next === State.Idle) f.isCharged = false;
   f.state = next; f.stateFrame = 0;
 }
 
@@ -215,9 +183,7 @@ function isProximityThreat(attacker, defender) {
   const isKick = attacker.state === State.KickStartup || attacker.state === State.KickActive;
   if (!isPunch && !isKick) return false;
 
-  const move = isPunch
-    ? (attacker.isCharged ? CONFIG.chargedPunch : CONFIG.punch)
-    : (attacker.isCharged ? CONFIG.chargedKick : CONFIG.kick);
+  const move = isPunch ? CONFIG.punch : CONFIG.kick;
   // Use projected position: account for lunge momentum closing distance during startup
   const projectedAx = attacker.x + (attacker.impulseX + attacker.vx) * DT * 3;
   const dx = (defender.x - projectedAx) * attacker.facing;
@@ -229,23 +195,11 @@ function isProximityThreat(attacker, defender) {
 function simInputForPlayer() {
   const p = world.player, c = world.cpu;
   p.blockHeld = false;
+  p.attackCooldown = Math.max(0, p.attackCooldown - 1);
 
-  // Charge tracking: hold to charge, release to fire
-  for (const type of ['punch', 'kick']) {
-    if (world.input[type + 'Held']) {
-      if (p.actionable() && (p.chargeType === null || p.chargeType === type)) {
-        p.chargeType = type;
-        p.chargeFrames++;
-      }
-    }
-    if (world.input[type + 'Up']) {
-      const wasCharging = p.chargeType === type;
-      const charged = wasCharging && p.chargeFrames >= CONFIG.chargeThreshold;
-      enqueueAction(p, type, charged);
-      if (wasCharging) { p.chargeType = null; p.chargeFrames = 0; }
-      world.input[type + 'Up'] = false;
-    }
-  }
+  // Single-press attacks
+  if (world.input.punch) enqueueAction(p, 'punch');
+  if (world.input.kick) enqueueAction(p, 'kick');
   world.input.punch = false; world.input.kick = false;
 
   // SF2-style proximity guard: holding back while enemy is threatening triggers block.
@@ -290,27 +244,11 @@ function simAI() {
   aiCooldown--;
   aiMoveTimer--;
   aiIdleTimer--;
+  ai.attackCooldown = Math.max(0, ai.attackCooldown - 1);
   const dx = player.x - ai.x;
   const dy = player.y - ai.y;
   const distance = Math.abs(dx);
   ai.facing = dx > 0 ? 1 : -1;
-
-  // Handle ongoing charge
-  if (ai.chargeType && ai.actionable()) {
-    ai.chargeFrames++;
-    if (ai.chargeFrames >= CONFIG.chargeThreshold) {
-      enqueueAction(ai, ai.chargeType, true);
-      ai.chargeType = null;
-      ai.chargeFrames = 0;
-      aiCooldown = Math.floor(25 + (1 - aiAggression) * 50 + Math.random() * 30);
-    }
-    return;
-  }
-  // Reset charge if no longer actionable (got hit)
-  if (ai.chargeType && !ai.actionable()) {
-    ai.chargeType = null;
-    ai.chargeFrames = 0;
-  }
 
   if (!ai.actionable()) return;
 
@@ -383,14 +321,7 @@ function simAI() {
   // Attack decision — aggression drives frequency and timing
   if (distance < 420 && aiCooldown <= 0) {
     if (Math.random() < 0.3 + effectiveAggro * 0.35) {
-      const type = Math.random() < 0.55 ? 'punch' : 'kick';
-      // 25% chance of charged attack when aggressive and close
-      if (Math.random() < 0.25 * effectiveAggro && distance < 380) {
-        ai.chargeType = type;
-        ai.chargeFrames = 0;
-      } else {
-        enqueueAction(ai, type);
-      }
+      enqueueAction(ai, Math.random() < 0.55 ? 'punch' : 'kick');
     }
     aiCooldown = Math.floor(25 + (1 - effectiveAggro) * 50 + Math.random() * 30);
   }
@@ -403,24 +334,24 @@ function processStates(f) {
       if (f.stateFrame >= FRAMES.blockRecovery) setState(f, State.Idle);
       break;
     case State.PunchStartup:
-      f.impulseX += f.facing * (f.isCharged ? CONFIG.chargedPunch.lungeForce : CONFIG.punch.lungeForce);
-      if (f.stateFrame >= (f.isCharged ? FRAMES.chargedPunchStartup : FRAMES.punchStartup)) setState(f, State.PunchActive);
+      f.impulseX += f.facing * CONFIG.punch.lungeForce;
+      if (f.stateFrame >= FRAMES.punchStartup) setState(f, State.PunchActive);
       break;
     case State.PunchActive:
-      if (f.stateFrame >= (f.isCharged ? FRAMES.chargedPunchActive : FRAMES.punchActive)) setState(f, State.PunchRecovery);
+      if (f.stateFrame >= FRAMES.punchActive) setState(f, State.PunchRecovery);
       break;
     case State.PunchRecovery:
-      if (f.stateFrame >= (f.isCharged ? FRAMES.chargedPunchRecovery : FRAMES.punchRecovery)) setState(f, State.Idle);
+      if (f.stateFrame >= FRAMES.punchRecovery) setState(f, State.Idle);
       break;
     case State.KickStartup:
-      f.impulseX += f.facing * (f.isCharged ? CONFIG.chargedKick.lungeForce : CONFIG.kick.lungeForce);
-      if (f.stateFrame >= (f.isCharged ? FRAMES.chargedKickStartup : FRAMES.kickStartup)) setState(f, State.KickActive);
+      f.impulseX += f.facing * CONFIG.kick.lungeForce;
+      if (f.stateFrame >= FRAMES.kickStartup) setState(f, State.KickActive);
       break;
     case State.KickActive:
-      if (f.stateFrame >= (f.isCharged ? FRAMES.chargedKickActive : FRAMES.kickActive)) setState(f, State.KickRecovery);
+      if (f.stateFrame >= FRAMES.kickActive) setState(f, State.KickRecovery);
       break;
     case State.KickRecovery:
-      if (f.stateFrame >= (f.isCharged ? FRAMES.chargedKickRecovery : FRAMES.kickRecovery)) setState(f, State.Idle);
+      if (f.stateFrame >= FRAMES.kickRecovery) setState(f, State.Idle);
       break;
     case State.HitStun:
     case State.BlockStun:
@@ -430,7 +361,7 @@ function processStates(f) {
   consumeBufferedAction(f);
 }
 
-function tryHit(attacker, defender, move, isKick, isCharged = false) {
+function tryHit(attacker, defender, move, isKick) {
   if (attacker.hitConfirmedThisState) return;
   const dx = (defender.x - attacker.x) * attacker.facing;
   const dy = Math.abs(defender.y - attacker.y);
@@ -438,21 +369,19 @@ function tryHit(attacker, defender, move, isKick, isCharged = false) {
 
   const blocked = defender.state === State.Block || defender.state === State.BlockStun;
   if (blocked) {
-    defender.health = Math.max(0, defender.health - (isCharged ? CONFIG.chipDamage * 2 : CONFIG.chipDamage));
+    defender.health = Math.max(0, defender.health - CONFIG.chipDamage);
     setState(defender, State.BlockStun); defender.stunFrames = move.blockStun;
     attacker.impulseX -= attacker.facing * move.pushOnBlock * 28;
     defender.impulseX += attacker.facing * move.pushOnBlock * 18;
-    world.hitStopFrames = isCharged ? FRAMES.chargedHitStopBlocked : FRAMES.hitStopBlocked;
-    triggerScreenShake(isCharged ? 8 : 4);
+    world.hitStopFrames = FRAMES.hitStopBlocked;
+    triggerScreenShake(4);
   } else {
     defender.health = Math.max(0, defender.health - move.damage);
     setState(defender, State.HitStun); defender.stunFrames = move.hitStun;
     defender.impulseX += attacker.facing * move.pushOnHit * 22;
     attacker.impulseX -= attacker.facing * move.pushOnHit * 9;
-    world.hitStopFrames = isCharged
-      ? (isKick ? FRAMES.chargedHitStopKick : FRAMES.chargedHitStopPunch)
-      : (isKick ? FRAMES.hitStopKick : FRAMES.hitStopPunch);
-    triggerScreenShake(isCharged ? (isKick ? 28 : 20) : (isKick ? 18 : 12));
+    world.hitStopFrames = isKick ? FRAMES.hitStopKick : FRAMES.hitStopPunch;
+    triggerScreenShake(isKick ? 18 : 12);
   }
 
   attacker.hitConfirmedThisState = true;
@@ -469,10 +398,10 @@ function resolveCombat() {
   p.facing = c.x > p.x ? 1 : -1;
   c.facing = p.x > c.x ? 1 : -1;
 
-  if (p.state === State.PunchActive) tryHit(p, c, p.isCharged ? CONFIG.chargedPunch : CONFIG.punch, false, p.isCharged);
-  if (p.state === State.KickActive) tryHit(p, c, p.isCharged ? CONFIG.chargedKick : CONFIG.kick, true, p.isCharged);
-  if (c.state === State.PunchActive) tryHit(c, p, c.isCharged ? CONFIG.chargedPunch : CONFIG.punch, false, c.isCharged);
-  if (c.state === State.KickActive) tryHit(c, p, c.isCharged ? CONFIG.chargedKick : CONFIG.kick, true, c.isCharged);
+  if (p.state === State.PunchActive) tryHit(p, c, CONFIG.punch, false);
+  if (p.state === State.KickActive) tryHit(p, c, CONFIG.kick, true);
+  if (c.state === State.PunchActive) tryHit(c, p, CONFIG.punch, false);
+  if (c.state === State.KickActive) tryHit(c, p, CONFIG.kick, true);
 
   if (Math.abs(p.x - c.x) < CONFIG.physics.pushSeparation) {
     const overlap = CONFIG.physics.pushSeparation - Math.abs(p.x - c.x);
@@ -537,7 +466,7 @@ function endRound() {
   if (winner) winner.roundWins++;
   ui.announcement.textContent = winner ? `${winner.id === 'player' ? 'Player' : 'CPU'} Wins Round` : 'Round Draw';
   // Freeze both fighters — KO'd fighters play death animation, winner idles
-  [p, c].forEach(f => { setState(f, f.health <= 0 ? State.KO : State.Idle); f.vx = 0; f.vy = 0; f.impulseX = 0; f.impulseY = 0; f.buffer.length = 0; f.chargeType = null; f.chargeFrames = 0; });
+  [p, c].forEach(f => { setState(f, f.health <= 0 ? State.KO : State.Idle); f.vx = 0; f.vy = 0; f.impulseX = 0; f.impulseY = 0; f.buffer.length = 0; f.attackCooldown = 0; });
   roundLockFrames = 180;
 }
 
@@ -574,7 +503,7 @@ function resetRoundIfNeeded() {
     f.x = i === 0 ? 350 : 930;
     f.y = 560;
     f.buffer.length = 0;
-    f.chargeType = null; f.chargeFrames = 0; f.isCharged = false;
+    f.attackCooldown = 0;
     setState(f, State.Idle);
   });
   ui.announcement.textContent = '';
@@ -597,7 +526,7 @@ function resetMatch() {
     f.vx = 0; f.vy = 0;
     f.impulseX = 0; f.impulseY = 0;
     f.buffer.length = 0;
-    f.chargeType = null; f.chargeFrames = 0; f.isCharged = false;
+    f.attackCooldown = 0;
     setState(f, State.Idle);
   });
   ui.announcement.textContent = '';
@@ -637,8 +566,6 @@ function step() {
     // Any attack/block input restarts the match
     if (world.input.punch || world.input.kick) {
       world.input.punch = false; world.input.kick = false;
-      world.input.punchHeld = false; world.input.kickHeld = false;
-      world.input.punchUp = false; world.input.kickUp = false;
       resetMatch();
     }
     return;
