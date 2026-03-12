@@ -93,13 +93,15 @@ function setInput(key, val) {
 }
 
 function setupMobileControls() {
-  // Single-tap attack buttons
+  // Single-tap attack buttons — suppress long-press context menu/vibration
   const bindAttack = (id, field) => {
     const el = document.getElementById(id);
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       world.input[field] = true;
     });
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    el.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
   };
   bindAttack('punch-btn', 'punch');
   bindAttack('kick-btn', 'kick');
