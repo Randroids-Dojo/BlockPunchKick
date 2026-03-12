@@ -60,22 +60,22 @@ function createKickClip() {
     FootR:     [0.0000, 0.6955, 0.7185, 0.0000],
   };
 
-  // Kick target poses — computed by rotating idle bones forward (quaternion math).
-  // Leg poses: idle rotated around local X axis. Arms: Punch guard. Plant leg: Punch stance.
+  // Kick target poses — computed via delta rotation from WalkJump animation.
+  // Delta = WalkJump_chamber * conj(WalkJump_idle), then applied to game idle.
   const kick = {
-    // --- Kicking leg (right) — idle rotated forward ---
-    UpperLegR_chamber: [0.8019, 0.0406, 0.1337, 0.5808],  // 55° forward from idle
-    UpperLegR_extend:  [0.6572, 0.0686, 0.1217, 0.7406],  // 80° forward from idle
-    LowerLegR_chamber: [0.6573, 0.0000, 0.0000, 0.7536],  // 50° more bend from idle
-    LowerLegR_extend:  [0.0035, 0.0000, 0.0000, 1.0000],  // Fully straight (from Punch)
-    FootR_chamber:     [0.0000, 0.8145, 0.5802, 0.0000],  // WalkJump t=0.250
-    FootR_extend:      [0.0000, 0.9310, 0.3651, 0.0000],  // WalkJump t=0.417
+    // --- Kicking leg (right) — delta from WalkJump forward swing ---
+    UpperLegR_chamber: [0.9005, -0.0352, 0.1289, 0.4138],  // 1x delta (~32° fwd)
+    UpperLegR_extend:  [0.6526, -0.0440, 0.0978, 0.7501],  // 2.5x delta (~80° fwd)
+    LowerLegR_chamber: [0.5144, 0.0000, 0.0000, 0.8575],   // Bent (WalkJump delta)
+    LowerLegR_extend:  [0.0035, 0.0000, 0.0000, 1.0000],   // Fully straight (from Punch)
+    FootR_chamber:     [0.0000, 0.8145, 0.5802, 0.0000],   // WalkJump t=0.250
+    FootR_extend:      [0.0000, 0.9310, 0.3651, 0.0000],   // WalkJump t=0.417
 
     // --- Body — neutral at chamber, slight backward lean at extend ---
-    Body_chamber:      [0.0000, 0.0000, 0.0000, 1.0000],  // Neutral
-    Body_extend:       [-0.0436, 0.0000, 0.0000, 0.9990],  // 5° backward lean
+    Body_chamber:      [0.0000, 0.0000, 0.0000, 1.0000],
+    Body_extend:       [-0.0436, 0.0000, 0.0000, 0.9990],   // ~5° backward lean
 
-    // --- Head stays at idle (minimal body lean) ---
+    // --- Head stays at idle ---
     Head_kick:         [-0.0309, -0.0029, -0.0013, 0.9995],
 
     // --- Left arm (Punch guard position) ---
@@ -83,8 +83,8 @@ function createKickClip() {
     LowerArmL_kick:    [0.1468, 0.5207, -0.6558, 0.5265],   // Punch t=0.250
 
     // --- Right arm (stays at idle) ---
-    UpperArmR_kick:    [0.0436, 0.8046, 0.0575, 0.5895],    // Idle
-    LowerArmR_kick:    [0.0897, -0.7051, 0.2550, 0.6556],   // Idle
+    UpperArmR_kick:    [0.0436, 0.8046, 0.0575, 0.5895],
+    LowerArmR_kick:    [0.0897, -0.7051, 0.2550, 0.6556],
 
     // --- Plant leg (left, subtle weight shift from Punch) ---
     UpperLegL_plant:   [0.9862, 0.0398, -0.1177, 0.1096],   // Punch t=0.250
