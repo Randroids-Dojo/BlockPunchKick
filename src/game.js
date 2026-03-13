@@ -156,6 +156,109 @@ function setupMobileControls() {
 }
 setupMobileControls();
 
+// ---------------------------------------------------------------------------
+// SBB Chat Control Mode
+// ---------------------------------------------------------------------------
+
+const sbb = {
+  enabled: false,
+  // Separate input state for Player 2 when in chat-control mode
+  input2: { left: false, right: false, up: false, down: false, punch: false, kick: false },
+};
+
+/** Mirror of simInputForPlayer() but drives world.cpu from sbb.input2. */
+function simInputForPlayer2() {
+  const p = world.cpu, c = world.player;
+  p.attackCooldown = Math.max(0, p.attackCooldown - 1);
+
+  // Always face toward opponent
+  const dx = c.x - p.x;
+  p.facing = dx > 0 ? 1 : -1;
+
+  // Single-press attacks (consumed this frame)
+  if (sbb.input2.punch) enqueueAction(p, 'punch');
+  if (sbb.input2.kick)  enqueueAction(p, 'kick');
+  sbb.input2.punch = false;
+  sbb.input2.kick  = false;
+
+  // SF2-style proximity guard: holding back while opponent threatens = block
+  p.blockHeld = false;
+  const holdingBack = (p.facing === 1  && sbb.input2.left  && !sbb.input2.right) ||
+                      (p.facing === -1 && sbb.input2.right && !sbb.input2.left);
+  const proximityGuard = holdingBack && isProximityThreat(c, p);
+  if (proximityGuard) p.blockHeld = true;
+
+  if (p.actionable()) {
+    p.axisX = (sbb.input2.right ? 1 : 0) - (sbb.input2.left ? 1 : 0);
+    p.axisY = (sbb.input2.down  ? 1 : 0) - (sbb.input2.up   ? 1 : 0);
+    if (proximityGuard) p.axisX = 0;
+
+    if (p.axisX || p.axisY) {
+      if (p.state !== State.Block) setState(p, State.Move);
+    } else if (p.state === State.Move) setState(p, State.Idle);
+
+    if (p.blockHeld && p.state !== State.Block) {
+      setState(p, State.Block);
+      p.buffer.length = 0;
+    }
+    if (!p.blockHeld && p.state === State.Block) setState(p, State.BlockRecovery);
+  }
+}
+
+function applyMovementInput(input, fighter, durationMs) {
+  input.left = true;
+  setTimeout(() => { input.left = false; }, durationMs);
+}
+
+window.addEventListener('message', (e) => {
+  if (!e.data || e.data.source !== 'sbb') return;
+  const msg = e.data;
+
+  if (msg.type === 'init') {
+    sbb.enabled = true;
+    const ann = document.getElementById('announcement');
+    if (ann) {
+      ann.textContent = '🎮 CHAT MODE';
+      ann.style.display = 'block';
+      setTimeout(() => { ann.style.display = 'none'; }, 2500);
+    }
+    return;
+  }
+
+  if (!sbb.enabled || msg.type !== 'bpk') return;
+
+  const isP2 = msg.player === 2;
+  const input   = isP2 ? sbb.input2  : world.input;
+  const fighter = isP2 ? world.cpu   : world.player;
+  const MOVE_MS = 130;  // ~16 frames at 120fps
+
+  switch (msg.action) {
+    case 'punch':
+    case 'kick':
+      input[msg.action] = true; // consumed next tick
+      break;
+    case 'block': {
+      // Hold "back" for 250ms — proximity guard will activate block if opponent is threatening
+      const backKey = fighter.facing === 1 ? 'left' : 'right';
+      input[backKey] = true;
+      setTimeout(() => { input[backKey] = false; }, 250);
+      break;
+    }
+    case 'left':
+      input.left = true;
+      setTimeout(() => { input.left = false; }, MOVE_MS);
+      break;
+    case 'right':
+      input.right = true;
+      setTimeout(() => { input.right = false; }, MOVE_MS);
+      break;
+    case 'jump':
+      input.up = true;
+      setTimeout(() => { input.up = false; }, 100);
+      break;
+  }
+});
+
 function enqueueAction(fighter, action) {
   if (fighter.buffer.length > 2) return;
   if (fighter.attackCooldown > 0) return;
@@ -590,7 +693,7 @@ function step() {
   [world.player, world.cpu].forEach((f) => f.hitConfirmedThisState = false);
 
   simInputForPlayer();
-  simAI();
+  if (sbb.enabled) simInputForPlayer2(); else simAI();
   integrateFighterPhysics(world.player);
   integrateFighterPhysics(world.cpu);
   processStates(world.player);
