@@ -38,6 +38,10 @@
 
       <canvas id="arena" aria-label="Block Punch Kick arena"></canvas>
 
+      <!-- Combo counters — positioned over each fighter's side -->
+      <div id="combo-p1" class="combo-counter left" aria-live="polite"></div>
+      <div id="combo-p2" class="combo-counter right" aria-live="polite"></div>
+
       <!-- Floating joystick: covers the left half of the viewport -->
       <div id="stick-zone" class="stick-zone">
         <div id="stick" class="stick hidden">
@@ -53,7 +57,7 @@
 
       <details class="help">
         <summary>Controls</summary>
-        <p>Move: A/D or ←/→ (W/S or ↑/↓ for vertical lane). Block: hold back when enemy attacks. Punch: K. Kick: L.</p>
+        <p>Move: A/D or ←/→ (W/S or ↑/↓ for vertical lane). Block: hold back when enemy attacks. Punch: K. Kick: L. Combo: land a hit then cancel into the other attack!</p>
       </details>
     </main>
 

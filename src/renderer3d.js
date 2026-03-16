@@ -31,7 +31,7 @@ const ANIM_MAP = {
   Kick_Startup: 'Kick',
   Kick_Active: 'Kick',
   Kick_Recovery: 'Kick',
-  Hit_Stun: 'Idle',
+  Hit_Stun: 'Death',
   Block_Stun: 'ThumbsUp',
   KO: 'Idle',  // base clip during KO; sequenced to Death after HeadSpin
 };
@@ -580,6 +580,12 @@ export function updateFighter(fighterId, fighter) {
   // Facing
   model.rotation.y = fighter.facing === 1 ? Math.PI / 2 : -Math.PI / 2;
 
+  // Hitstun vibration — small rapid position jitter for visceral impact feel
+  if (fighter.state === 'Hit_Stun' && fighter.hitFlash > 0) {
+    model.position.x += (Math.random() - 0.5) * 0.08;
+    model.position.z += (Math.random() - 0.5) * 0.04;
+  }
+
   // Animation — use Running for fast movement, Walking for slow
   const speed = Math.sqrt(fighter.vx * fighter.vx + fighter.vy * fighter.vy);
   let clipName = ANIM_MAP[fighter.state] || 'Idle';
@@ -594,7 +600,11 @@ export function updateFighter(fighterId, fighter) {
   // Playback speed adjustments
   const currentAction = actions[fighterId]?.[clipName];
   if (currentAction) {
-    if (fighter.state === 'Block' || fighter.state === 'Block_Stun') {
+    if (fighter.state === 'Hit_Stun') {
+      // Freeze at early recoil frame of Death animation for a stagger pose
+      currentAction.timeScale = 0;
+      currentAction.time = 0.15;
+    } else if (fighter.state === 'Block' || fighter.state === 'Block_Stun') {
       // Hold at the raised-fist guard pose in the ThumbsUp animation
       currentAction.timeScale = 0;
       currentAction.time = 0.5;
@@ -666,11 +676,16 @@ export function updateFighter(fighterId, fighter) {
     }
   }
 
-  // Hit flash effect (uses cached mesh references)
+  // Hit flash effect — bright white flash on hit, decays over hitFlash frames
   const meshes = meshCache[fighterId];
   if (meshes) {
+    const flashIntensity = fighter.hitFlash > 0 ? fighter.hitFlash * 0.4 : 0;
     for (const mesh of meshes) {
-      mesh.material.emissiveIntensity = 0;
+      mesh.material.emissiveIntensity = flashIntensity;
+      if (flashIntensity > 0) {
+        mesh.material.emissive = mesh.material.emissive || new THREE.Color();
+        mesh.material.emissive.setHex(0xffffff);
+      }
     }
   }
 }
