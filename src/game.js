@@ -11,9 +11,9 @@ const FRAMES = {
   kickStartup: 10,
   kickActive: 4,
   kickRecovery: 14,
-  hitStopPunch: 7,
-  hitStopKick: 10,
-  hitStopBlocked: 9,
+  hitStopPunch: 8,
+  hitStopKick: 12,
+  hitStopBlocked: 6,
 };
 
 const CONFIG = {
@@ -32,10 +32,11 @@ const CONFIG = {
     axisResponsivenessX: 1,
     axisResponsivenessY: 0.72,
   },
-  punch: { damage: 8, range: 340, proximityRange: 480, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 600 },
-  kick: { damage: 12, range: 360, proximityRange: 510, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 500 },
+  punch: { damage: 8, range: 340, proximityRange: 480, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 2800 },
+  kick: { damage: 12, range: 360, proximityRange: 510, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 2200 },
   attackCooldown: 18,
   chipDamage: 1,
+  comboDropFrames: 45, // frames after last hit before combo resets (~375ms)
 };
 
 const State = {
@@ -55,6 +56,10 @@ class Fighter {
     this.axisX = 0; this.axisY = 0;
     this.vx = 0; this.vy = 0;
     this.impulseX = 0; this.impulseY = 0;
+    // Combo tracking — how many consecutive hits landed on this fighter
+    this.comboCount = 0;
+    this.comboTimer = 0; // frames since last hit — resets combo when expired
+    this.hitFlash = 0;   // frames remaining for hit flash effect
   }
   actionable() { return [State.Idle, State.Move, State.Block].includes(this.state); }
   inAttack() { return [State.PunchStartup, State.PunchActive, State.PunchRecovery, State.KickStartup, State.KickActive, State.KickRecovery].includes(this.state); }
@@ -75,6 +80,7 @@ const ui = {
   p1Health: document.getElementById('p1-health'), p2Health: document.getElementById('p2-health'),
   p1Rounds: document.getElementById('p1-rounds'), p2Rounds: document.getElementById('p2-rounds'),
   timer: document.getElementById('timer'), roundText: document.getElementById('round-text'), announcement: document.getElementById('announcement'),
+  comboP1: document.getElementById('combo-p1'), comboP2: document.getElementById('combo-p2'),
 };
 
 const keyMap = {
@@ -262,22 +268,48 @@ window.addEventListener('message', (e) => {
 function enqueueAction(fighter, action) {
   if (fighter.buffer.length > 2) return;
   if (fighter.attackCooldown > 0) return;
-  fighter.buffer.push({ action, expires: world.frame + 5 });
+  fighter.buffer.push({ action, expires: world.frame + 10 });
 }
 
 function consumeBufferedAction(fighter) {
   fighter.buffer = fighter.buffer.filter((item) => item.expires >= world.frame);
-  if (!fighter.actionable() || fighter.buffer.length === 0) return;
+  if (fighter.buffer.length === 0) return;
   // Don't consume attack actions while actively blocking
   if (fighter.blockHeld || fighter.state === State.Block) return;
-  const next = fighter.buffer.shift();
-  if (next.action === 'punch') setState(fighter, State.PunchStartup);
-  if (next.action === 'kick') setState(fighter, State.KickStartup);
-  fighter.attackCooldown = CONFIG.attackCooldown;
+
+  // Normal consumption when actionable (idle/move/block)
+  if (fighter.actionable()) {
+    const next = fighter.buffer.shift();
+    if (next.action === 'punch') setState(fighter, State.PunchStartup);
+    if (next.action === 'kick') setState(fighter, State.KickStartup);
+    fighter.attackCooldown = CONFIG.attackCooldown;
+    return;
+  }
+
+  // Attack cancel: on hit confirm, allow canceling active/early-recovery into the OTHER attack
+  // This enables natural punch→kick and kick→punch gatling combos
+  if (fighter.hitConfirmedThisState) {
+    const canCancel =
+      (fighter.state === State.PunchActive || fighter.state === State.PunchRecovery) ||
+      (fighter.state === State.KickActive || fighter.state === State.KickRecovery);
+    if (canCancel) {
+      const next = fighter.buffer[0];
+      // Only cancel into a DIFFERENT attack type (no same-move spam cancel)
+      const isPunchState = fighter.state === State.PunchActive || fighter.state === State.PunchRecovery;
+      const wantsDifferent = isPunchState ? next.action === 'kick' : next.action === 'punch';
+      if (wantsDifferent) {
+        fighter.buffer.shift();
+        if (next.action === 'punch') setState(fighter, State.PunchStartup);
+        if (next.action === 'kick') setState(fighter, State.KickStartup);
+        fighter.attackCooldown = CONFIG.attackCooldown;
+      }
+    }
+  }
 }
 
 function setState(f, next) {
   f.state = next; f.stateFrame = 0;
+  f.hitConfirmedThisState = false;
 }
 
 // SF2-style proximity guard: returns true if attacker is a threat that should trigger block.
@@ -439,7 +471,7 @@ function processStates(f) {
       if (f.stateFrame >= FRAMES.blockRecovery) setState(f, State.Idle);
       break;
     case State.PunchStartup:
-      f.impulseX += f.facing * CONFIG.punch.lungeForce;
+      if (f.stateFrame === 1) f.impulseX += f.facing * CONFIG.punch.lungeForce;
       if (f.stateFrame >= FRAMES.punchStartup) setState(f, State.PunchActive);
       break;
     case State.PunchActive:
@@ -449,7 +481,7 @@ function processStates(f) {
       if (f.stateFrame >= FRAMES.punchRecovery) setState(f, State.Idle);
       break;
     case State.KickStartup:
-      f.impulseX += f.facing * CONFIG.kick.lungeForce;
+      if (f.stateFrame === 1) f.impulseX += f.facing * CONFIG.kick.lungeForce;
       if (f.stateFrame >= FRAMES.kickStartup) setState(f, State.KickActive);
       break;
     case State.KickActive:
@@ -480,13 +512,26 @@ function tryHit(attacker, defender, move, isKick) {
     defender.impulseX += attacker.facing * move.pushOnBlock * 18;
     world.hitStopFrames = FRAMES.hitStopBlocked;
     triggerScreenShake(4);
+    // Blocking resets the attacker's combo
+    defender.comboCount = 0;
+    defender.comboTimer = 0;
+    defender.hitFlash = 4;
   } else {
+    // Combo scaling: hitstun decays ~12% per hit, knockback grows ~8% per hit
+    defender.comboCount++;
+    defender.comboTimer = CONFIG.comboDropFrames;
+    const comboN = defender.comboCount;
+    const stunScale = Math.max(0.5, 1 - (comboN - 1) * 0.12);   // floor at 50%
+    const kbScale = Math.min(1.5, 1 + (comboN - 1) * 0.08);     // cap at 150%
+
     defender.health = Math.max(0, defender.health - move.damage);
-    setState(defender, State.HitStun); defender.stunFrames = move.hitStun;
-    defender.impulseX += attacker.facing * move.pushOnHit * 22;
+    setState(defender, State.HitStun);
+    defender.stunFrames = Math.round(move.hitStun * stunScale);
+    defender.impulseX += attacker.facing * move.pushOnHit * 22 * kbScale;
     attacker.impulseX -= attacker.facing * move.pushOnHit * 9;
     world.hitStopFrames = isKick ? FRAMES.hitStopKick : FRAMES.hitStopPunch;
     triggerScreenShake(isKick ? 18 : 12);
+    defender.hitFlash = 6;
   }
 
   attacker.hitConfirmedThisState = true;
@@ -543,8 +588,10 @@ function integrateFighterPhysics(f) {
   if (!axisX) f.vx *= Math.max(0, 1 - physics.airBrake * DT);
   if (!axisY) f.vy *= Math.max(0, 1 - physics.airBrake * DT);
 
-  f.impulseX *= Math.max(0, 1 - physics.impulseDamping * DT);
-  f.impulseY *= Math.max(0, 1 - physics.impulseDamping * DT);
+  // Non-linear impulse decay: fast initial falloff, long tail for satisfying knockback arc
+  const decay = Math.pow(Math.max(0, 1 - physics.impulseDamping * DT), 1.4);
+  f.impulseX *= decay;
+  f.impulseY *= decay;
 
   f.x += (f.vx + f.impulseX) * DT;
   f.y += (f.vy + f.impulseY) * DT;
@@ -609,6 +656,7 @@ function resetRoundIfNeeded() {
     f.y = 560;
     f.buffer.length = 0;
     f.attackCooldown = 0;
+    f.comboCount = 0; f.comboTimer = 0; f.hitFlash = 0;
     setState(f, State.Idle);
   });
   ui.announcement.textContent = '';
@@ -632,6 +680,7 @@ function resetMatch() {
     f.impulseX = 0; f.impulseY = 0;
     f.buffer.length = 0;
     f.attackCooldown = 0;
+    f.comboCount = 0; f.comboTimer = 0; f.hitFlash = 0;
     setState(f, State.Idle);
   });
   ui.announcement.textContent = '';
@@ -644,6 +693,23 @@ function updateHud() {
   ui.roundText.textContent = world.round >= 3 ? 'Final Round' : `Round ${world.round}`;
   drawRoundDots(ui.p1Rounds, world.player.roundWins, 'player');
   drawRoundDots(ui.p2Rounds, world.cpu.roundWins, 'cpu');
+
+  // Combo counters — show on the ATTACKER's side when they land combos
+  // (comboCount is on the defender, so cpu.comboCount = hits landed BY player)
+  updateComboDisplay(ui.comboP1, world.cpu.comboCount, world.cpu.comboTimer);
+  updateComboDisplay(ui.comboP2, world.player.comboCount, world.player.comboTimer);
+}
+
+function updateComboDisplay(el, comboCount, comboTimer) {
+  const side = el.id === 'combo-p1' ? 'left' : 'right';
+  if (comboCount >= 2) {
+    el.textContent = `${comboCount} HIT`;
+    el.className = `combo-counter ${side} active`;
+  } else if (el.classList.contains('active')) {
+    el.className = `combo-counter ${side} fading`;
+  } else if (el.classList.contains('fading') && comboTimer <= 0) {
+    el.className = `combo-counter ${side}`;
+  }
 }
 
 function drawRoundDots(node, wins, type) {
@@ -690,7 +756,14 @@ function step() {
     return;
   }
 
-  [world.player, world.cpu].forEach((f) => f.hitConfirmedThisState = false);
+  // Decay combo timers and hit flash
+  [world.player, world.cpu].forEach((f) => {
+    if (f.comboTimer > 0) {
+      f.comboTimer--;
+      if (f.comboTimer <= 0) f.comboCount = 0;
+    }
+    if (f.hitFlash > 0) f.hitFlash--;
+  });
 
   simInputForPlayer();
   if (sbb.enabled) simInputForPlayer2(); else simAI();
