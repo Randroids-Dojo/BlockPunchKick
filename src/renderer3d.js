@@ -281,6 +281,8 @@ export async function initScene(canvas) {
   clock = new THREE.Clock();
 
   scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x050510);
+  scene.fog = new THREE.Fog(0x050510, 20, 40);
 
   const rect = canvas.getBoundingClientRect();
   camera = new THREE.PerspectiveCamera(40, rect.width / rect.height, 0.1, 100);
@@ -297,34 +299,166 @@ export async function initScene(canvas) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.2;
 
-  // Lighting
-  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  // Lighting — arena-style with dramatic overhead spots
+  const ambient = new THREE.AmbientLight(0xffffff, 0.3);
   scene.add(ambient);
 
-  const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.0);
-  dirLight1.position.set(5, 8, 5);
+  // Main overhead ring light
+  const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.2);
+  dirLight1.position.set(0, 12, 3);
   scene.add(dirLight1);
 
-  const dirLight2 = new THREE.DirectionalLight(0x8899ff, 0.4);
-  dirLight2.position.set(-5, 4, -3);
+  // Warm accent from one side
+  const dirLight2 = new THREE.DirectionalLight(0xffcc88, 0.5);
+  dirLight2.position.set(6, 6, 5);
   scene.add(dirLight2);
 
-  // Ground plane
-  const groundGeo = new THREE.PlaneGeometry(24, 12);
-  const groundMat = new THREE.MeshStandardMaterial({
-    color: 0x1a1a2e,
-    roughness: 0.8,
-    metalness: 0.2,
-  });
-  const ground = new THREE.Mesh(groundGeo, groundMat);
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = 0;
-  scene.add(ground);
+  // Cool accent from the other side
+  const dirLight3 = new THREE.DirectionalLight(0x88aaff, 0.3);
+  dirLight3.position.set(-6, 6, -3);
+  scene.add(dirLight3);
 
-  // Grid lines on ground for visual reference
-  const gridHelper = new THREE.GridHelper(22, 44, 0x333355, 0x222244);
-  gridHelper.position.y = 0.005;
-  scene.add(gridHelper);
+  // --- Boxing Ring ---
+  const RING_W = 12;   // width (x-axis)
+  const RING_D = 8;    // depth (z-axis)
+  const PLATFORM_H = 0.5;  // platform height
+  const POST_H = 1.6;      // corner post height above platform
+  const POST_R = 0.08;     // corner post radius
+  const ROPE_R = 0.025;    // rope radius
+  const ROPE_HEIGHTS = [0.45, 0.85, 1.25]; // rope heights above platform
+
+  const halfW = RING_W / 2;
+  const halfD = RING_D / 2;
+
+  // Dark arena floor beneath the ring
+  const arenaFloorGeo = new THREE.PlaneGeometry(50, 50);
+  const arenaFloorMat = new THREE.MeshStandardMaterial({
+    color: 0x0a0a14,
+    roughness: 0.95,
+    metalness: 0.0,
+  });
+  const arenaFloor = new THREE.Mesh(arenaFloorGeo, arenaFloorMat);
+  arenaFloor.rotation.x = -Math.PI / 2;
+  arenaFloor.position.y = 0;
+  scene.add(arenaFloor);
+
+  // Ring platform (elevated box)
+  const platformGeo = new THREE.BoxGeometry(RING_W + 1.0, PLATFORM_H, RING_D + 1.0);
+  const platformMat = new THREE.MeshStandardMaterial({
+    color: 0x111118,
+    roughness: 0.7,
+    metalness: 0.1,
+  });
+  const platform = new THREE.Mesh(platformGeo, platformMat);
+  platform.position.y = PLATFORM_H / 2;
+  scene.add(platform);
+
+  // Ring canvas (the fighting surface)
+  const canvasGeo = new THREE.BoxGeometry(RING_W, 0.06, RING_D);
+  const canvasMat = new THREE.MeshStandardMaterial({
+    color: 0xe8dcc8,
+    roughness: 0.9,
+    metalness: 0.0,
+  });
+  const ringCanvas = new THREE.Mesh(canvasGeo, canvasMat);
+  ringCanvas.position.y = PLATFORM_H + 0.03;
+  scene.add(ringCanvas);
+
+  // Apron skirt (sides of the platform)
+  const apronMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1a3a,
+    roughness: 0.6,
+    metalness: 0.1,
+  });
+  // Front and back aprons
+  for (const zSign of [-1, 1]) {
+    const apronGeo = new THREE.PlaneGeometry(RING_W + 1.0, PLATFORM_H);
+    const apron = new THREE.Mesh(apronGeo, apronMat);
+    apron.position.set(0, PLATFORM_H / 2, zSign * (halfD + 0.5));
+    if (zSign === 1) apron.rotation.y = Math.PI;
+    scene.add(apron);
+  }
+  // Left and right aprons
+  for (const xSign of [-1, 1]) {
+    const apronGeo = new THREE.PlaneGeometry(RING_D + 1.0, PLATFORM_H);
+    const apron = new THREE.Mesh(apronGeo, apronMat);
+    apron.position.set(xSign * (halfW + 0.5), PLATFORM_H / 2, 0);
+    apron.rotation.y = xSign * -Math.PI / 2;
+    scene.add(apron);
+  }
+
+  // Corner posts (turnbuckles)
+  const postMat = new THREE.MeshStandardMaterial({
+    color: 0xcccccc,
+    roughness: 0.3,
+    metalness: 0.8,
+  });
+  const cornerPositions = [
+    [-halfW, halfD],
+    [halfW, halfD],
+    [halfW, -halfD],
+    [-halfW, -halfD],
+  ];
+  for (const [cx, cz] of cornerPositions) {
+    const postGeo = new THREE.CylinderGeometry(POST_R, POST_R, POST_H, 8);
+    const post = new THREE.Mesh(postGeo, postMat);
+    post.position.set(cx, PLATFORM_H + POST_H / 2, cz);
+    scene.add(post);
+
+    // Turnbuckle pad on top
+    const padGeo = new THREE.CylinderGeometry(0.06, 0.08, 0.12, 8);
+    const padMat = new THREE.MeshStandardMaterial({ color: 0xcc2222, roughness: 0.6 });
+    const pad = new THREE.Mesh(padGeo, padMat);
+    pad.position.set(cx, PLATFORM_H + POST_H + 0.06, cz);
+    scene.add(pad);
+  }
+
+  // Ropes
+  const ropeMat = new THREE.MeshStandardMaterial({
+    color: 0xeeeeee,
+    roughness: 0.5,
+    metalness: 0.3,
+  });
+  // Each side connects two adjacent corners
+  const sides = [
+    [cornerPositions[0], cornerPositions[1]], // front
+    [cornerPositions[1], cornerPositions[2]], // right
+    [cornerPositions[2], cornerPositions[3]], // back
+    [cornerPositions[3], cornerPositions[0]], // left
+  ];
+  for (const [a, b] of sides) {
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const len = Math.sqrt(dx * dx + dz * dz);
+    const angle = Math.atan2(dx, dz);
+    for (const rh of ROPE_HEIGHTS) {
+      const ropeGeo = new THREE.CylinderGeometry(ROPE_R, ROPE_R, len, 6);
+      ropeGeo.rotateZ(Math.PI / 2);
+      ropeGeo.rotateY(-angle + Math.PI / 2);
+      const rope = new THREE.Mesh(ropeGeo, ropeMat);
+      rope.position.set(
+        (a[0] + b[0]) / 2,
+        PLATFORM_H + rh,
+        (a[1] + b[1]) / 2
+      );
+      scene.add(rope);
+    }
+  }
+
+  // Corner pads (colored red/blue for the two neutral corners, red for fighters)
+  const cornerPadColors = [0xcc2222, 0x2244cc, 0xcc2222, 0x2244cc];
+  for (let i = 0; i < 4; i++) {
+    const [cx, cz] = cornerPositions[i];
+    const padGeo = new THREE.BoxGeometry(0.35, POST_H * 0.8, 0.35);
+    const padMat = new THREE.MeshStandardMaterial({
+      color: cornerPadColors[i],
+      roughness: 0.7,
+      metalness: 0.1,
+    });
+    const pad = new THREE.Mesh(padGeo, padMat);
+    pad.position.set(cx, PLATFORM_H + POST_H * 0.4, cz);
+    scene.add(pad);
+  }
 
   // Load fighters
   const loader = new GLTFLoader();
@@ -441,7 +575,7 @@ export function updateFighter(fighterId, fighter) {
   const pos = gameToWorld(fighter.x, fighter.y);
   model.position.x = pos.x;
   model.position.z = pos.z;
-  model.position.y = 0;
+  model.position.y = 0.53;  // stand on ring platform
 
   // Facing
   model.rotation.y = fighter.facing === 1 ? Math.PI / 2 : -Math.PI / 2;
