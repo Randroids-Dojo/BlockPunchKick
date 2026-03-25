@@ -24,7 +24,7 @@ let cameraZ = DEFAULT_ZOOM;
 // Dynamic camera — Samurai Shodown-style zoom based on fighter distance
 let dynamicZoomTarget = DEFAULT_ZOOM;
 let dynamicCameraX = 0;            // horizontal tracking target
-const CAMERA_LERP_SPEED = 0.04;    // smooth follow rate (per frame)
+const CAMERA_LERP_SPEED = 0.08;    // smooth follow rate (per frame)
 
 const ANIM_MAP = {
   Idle: 'Idle',
@@ -743,10 +743,10 @@ export function updateDynamicCamera(player, cpu) {
 
   // Map fighter distance to zoom: close → zoom in, far → zoom out
   // dx ranges roughly 0 (touching) to ~10 (full arena width)
-  const CLOSE_DIST = 1.0;   // fighters very close
-  const FAR_DIST = 7.0;     // fighters far apart
-  const ZOOM_CLOSE = isEmbedded ? 16 : 12;  // tight zoom when close
-  const ZOOM_FAR = isEmbedded ? 26 : 20;    // wide zoom when far
+  const CLOSE_DIST = 0.8;   // fighters very close
+  const FAR_DIST = 6.0;     // fighters far apart
+  const ZOOM_CLOSE = isEmbedded ? 13 : 9;   // dramatic close-up
+  const ZOOM_FAR = isEmbedded ? 28 : 22;    // wide shot when far
 
   const t = Math.max(0, Math.min(1, (dx - CLOSE_DIST) / (FAR_DIST - CLOSE_DIST)));
   dynamicZoomTarget = ZOOM_CLOSE + t * (ZOOM_FAR - ZOOM_CLOSE);
@@ -793,10 +793,16 @@ export function render3d() {
   cameraZ += (dynamicZoomTarget - cameraZ) * CAMERA_LERP_SPEED;
   cameraZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZ));
 
+  // Drop camera height when zoomed in for a more dramatic angle
+  const zoomNorm = (cameraZ - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM); // 0 = closest, 1 = farthest
+  const cameraY = 3.0 + zoomNorm * 2.0; // 3.0 close-up → 5.0 pulled back
+  const lookY = 1.2 + zoomNorm * 0.5;   // look target follows slightly
+
   camera.position.x = dynamicCameraX + shakeOffset.x;
-  camera.position.y = 4.5 + shakeOffset.y;
+  camera.position.y = cameraY + shakeOffset.y;
   camera.position.z = cameraZ;
   cameraLookAt.x = dynamicCameraX;
+  cameraLookAt.y = lookY;
   camera.lookAt(cameraLookAt);
 
   renderer.render(scene, camera);
