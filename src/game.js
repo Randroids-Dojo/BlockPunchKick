@@ -11,8 +11,12 @@ const FRAMES = {
   kickStartup: 10,
   kickActive: 4,
   kickRecovery: 17,
+  uppercutStartup: 5,
+  uppercutActive: 4,
+  uppercutRecovery: 20,
   hitStopPunch: 8,
   hitStopKick: 12,
+  hitStopUppercut: 16,
   hitStopBlocked: 6,
 };
 
@@ -32,9 +36,12 @@ const CONFIG = {
     axisResponsivenessX: 1,
     axisResponsivenessY: 0.72,
   },
-  punch: { damage: 8, range: 340, proximityRange: 480, yRange: 90, hitStun: 20, blockStun: 9, pushOnHit: 55, pushOnBlock: 45, lungeForce: 2800 },
-  kick: { damage: 12, range: 360, proximityRange: 510, yRange: 100, hitStun: 26, blockStun: 12, pushOnHit: 80, pushOnBlock: 60, lungeForce: 2200 },
+  punch: { damage: 8, range: 340, proximityRange: 480, yRange: 90, hitStun: 20, blockStun: 9, pushOnHit: 55, pushOnBlock: 55, lungeForce: 1800 },
+  kick: { damage: 12, range: 360, proximityRange: 510, yRange: 100, hitStun: 26, blockStun: 12, pushOnHit: 80, pushOnBlock: 70, lungeForce: 1600 },
+  uppercut: { damage: 15, range: 350, proximityRange: 480, yRange: 100, hitStun: 36, blockStun: 14, pushOnHit: 120, pushOnBlock: 80, lungeForce: 2400 },
   attackCooldown: 22,
+  punchComboWindow: 60,          // frames between punches to keep combo chain alive (~500ms)
+  punchExhaustionCooldown: 360,  // frames after uppercut before punching again (~3 seconds)
   chipDamage: 1,
   comboDropFrames: 45, // frames after last hit before combo resets (~375ms)
 };
@@ -43,6 +50,7 @@ const State = {
   Idle: 'Idle', Move: 'Move', Block: 'Block', BlockRecovery: 'Block_Recovery',
   PunchStartup: 'Punch_Startup', PunchActive: 'Punch_Active', PunchRecovery: 'Punch_Recovery',
   KickStartup: 'Kick_Startup', KickActive: 'Kick_Active', KickRecovery: 'Kick_Recovery',
+  UppercutStartup: 'Uppercut_Startup', UppercutActive: 'Uppercut_Active', UppercutRecovery: 'Uppercut_Recovery',
   HitStun: 'Hit_Stun', BlockStun: 'Block_Stun', KO: 'KO',
 };
 
@@ -60,9 +68,13 @@ class Fighter {
     this.comboCount = 0;
     this.comboTimer = 0; // frames since last hit — resets combo when expired
     this.hitFlash = 0;   // frames remaining for hit flash effect
+    // Punch combo chain: tracks consecutive punch hits (0→1→2 then uppercut)
+    this.punchChain = 0;
+    this.punchChainTimer = 0; // frames remaining before chain resets
+    this.punchExhaustion = 0; // frames remaining where punching is locked out (post-uppercut)
   }
   actionable() { return [State.Idle, State.Move, State.Block].includes(this.state); }
-  inAttack() { return [State.PunchStartup, State.PunchActive, State.PunchRecovery, State.KickStartup, State.KickActive, State.KickRecovery].includes(this.state); }
+  inAttack() { return [State.PunchStartup, State.PunchActive, State.PunchRecovery, State.KickStartup, State.KickActive, State.KickRecovery, State.UppercutStartup, State.UppercutActive, State.UppercutRecovery].includes(this.state); }
 }
 
 const world = {
@@ -268,6 +280,8 @@ window.addEventListener('message', (e) => {
 function enqueueAction(fighter, action) {
   if (fighter.buffer.length > 2) return;
   if (fighter.attackCooldown > 0) return;
+  // Post-uppercut exhaustion: can't punch, but can still kick
+  if (action === 'punch' && fighter.punchExhaustion > 0) return;
   fighter.buffer.push({ action, expires: world.frame + 10 });
 }
 
@@ -280,27 +294,46 @@ function consumeBufferedAction(fighter) {
   // Normal consumption when actionable (idle/move/block)
   if (fighter.actionable()) {
     const next = fighter.buffer.shift();
-    if (next.action === 'punch') setState(fighter, State.PunchStartup);
-    if (next.action === 'kick') setState(fighter, State.KickStartup);
+    if (next.action === 'punch') {
+      // 3rd punch in chain auto-upgrades to uppercut
+      if (fighter.punchChain >= 2) {
+        setState(fighter, State.UppercutStartup);
+      } else {
+        setState(fighter, State.PunchStartup);
+      }
+    }
+    if (next.action === 'kick') {
+      fighter.punchChain = 0; fighter.punchChainTimer = 0; // kick breaks punch chain
+      setState(fighter, State.KickStartup);
+    }
     fighter.attackCooldown = CONFIG.attackCooldown;
     return;
   }
 
-  // Attack cancel: on hit confirm, allow canceling active/early-recovery into the OTHER attack
-  // This enables natural punch→kick and kick→punch gatling combos
+  // Attack cancel: on hit confirm, allow canceling into the next attack in the chain
+  // Punch→Punch (chain), Punch→Kick, Kick→Punch gatling combos
   if (fighter.hitConfirmedThisState) {
-    const canCancel =
-      (fighter.state === State.PunchActive || fighter.state === State.PunchRecovery) ||
-      (fighter.state === State.KickActive || fighter.state === State.KickRecovery);
+    const isPunchState = fighter.state === State.PunchActive || fighter.state === State.PunchRecovery;
+    const isKickState = fighter.state === State.KickActive || fighter.state === State.KickRecovery;
+    const canCancel = isPunchState || isKickState;
     if (canCancel) {
       const next = fighter.buffer[0];
-      // Only cancel into a DIFFERENT attack type (no same-move spam cancel)
-      const isPunchState = fighter.state === State.PunchActive || fighter.state === State.PunchRecovery;
+      // Allow punch→punch chain (including final uppercut), punch→kick, kick→punch
+      const isPunchChain = isPunchState && next.action === 'punch';
       const wantsDifferent = isPunchState ? next.action === 'kick' : next.action === 'punch';
-      if (wantsDifferent) {
+      if (isPunchChain || wantsDifferent) {
         fighter.buffer.shift();
-        if (next.action === 'punch') setState(fighter, State.PunchStartup);
-        if (next.action === 'kick') setState(fighter, State.KickStartup);
+        if (next.action === 'punch') {
+          if (fighter.punchChain >= 2) {
+            setState(fighter, State.UppercutStartup);
+          } else {
+            setState(fighter, State.PunchStartup);
+          }
+        }
+        if (next.action === 'kick') {
+          fighter.punchChain = 0; fighter.punchChainTimer = 0;
+          setState(fighter, State.KickStartup);
+        }
         fighter.attackCooldown = CONFIG.attackCooldown;
       }
     }
@@ -318,9 +351,10 @@ function setState(f, next) {
 function isProximityThreat(attacker, defender) {
   const isPunch = attacker.state === State.PunchStartup || attacker.state === State.PunchActive;
   const isKick = attacker.state === State.KickStartup || attacker.state === State.KickActive;
-  if (!isPunch && !isKick) return false;
+  const isUppercut = attacker.state === State.UppercutStartup || attacker.state === State.UppercutActive;
+  if (!isPunch && !isKick && !isUppercut) return false;
 
-  const move = isPunch ? CONFIG.punch : CONFIG.kick;
+  const move = isUppercut ? CONFIG.uppercut : isPunch ? CONFIG.punch : CONFIG.kick;
   // Use projected position: account for lunge momentum closing distance during startup
   const projectedAx = attacker.x + (attacker.impulseX + attacker.vx) * DT * 3;
   const dx = (defender.x - projectedAx) * attacker.facing;
@@ -490,6 +524,16 @@ function processStates(f) {
     case State.KickRecovery:
       if (f.stateFrame >= FRAMES.kickRecovery) setState(f, State.Idle);
       break;
+    case State.UppercutStartup:
+      if (f.stateFrame === 1) f.impulseX += f.facing * CONFIG.uppercut.lungeForce;
+      if (f.stateFrame >= FRAMES.uppercutStartup) setState(f, State.UppercutActive);
+      break;
+    case State.UppercutActive:
+      if (f.stateFrame >= FRAMES.uppercutActive) setState(f, State.UppercutRecovery);
+      break;
+    case State.UppercutRecovery:
+      if (f.stateFrame >= FRAMES.uppercutRecovery) setState(f, State.Idle);
+      break;
     case State.HitStun:
     case State.BlockStun:
       if (f.stateFrame >= f.stunFrames) setState(f, State.Idle);
@@ -498,7 +542,7 @@ function processStates(f) {
   consumeBufferedAction(f);
 }
 
-function tryHit(attacker, defender, move, isKick) {
+function tryHit(attacker, defender, move, moveType) {
   if (attacker.hitConfirmedThisState) return;
   const dx = (defender.x - attacker.x) * attacker.facing;
   const dy = Math.abs(defender.y - attacker.y);
@@ -511,7 +555,9 @@ function tryHit(attacker, defender, move, isKick) {
     attacker.impulseX -= attacker.facing * move.pushOnBlock * 28;
     defender.impulseX += attacker.facing * move.pushOnBlock * 18;
     world.hitStopFrames = FRAMES.hitStopBlocked;
-    triggerScreenShake(4);
+    triggerScreenShake(moveType === 'uppercut' ? 10 : 4);
+    // Blocking breaks the attacker's punch chain
+    attacker.punchChain = 0; attacker.punchChainTimer = 0;
     // Blocking resets the attacker's combo
     defender.comboCount = 0;
     defender.comboTimer = 0;
@@ -529,9 +575,26 @@ function tryHit(attacker, defender, move, isKick) {
     defender.stunFrames = Math.round(move.hitStun * stunScale);
     defender.impulseX += attacker.facing * move.pushOnHit * 22 * kbScale;
     attacker.impulseX -= attacker.facing * move.pushOnHit * 9;
-    world.hitStopFrames = isKick ? FRAMES.hitStopKick : FRAMES.hitStopPunch;
-    triggerScreenShake(isKick ? 18 : 12);
-    defender.hitFlash = 6;
+
+    const hitStopMap = { punch: FRAMES.hitStopPunch, kick: FRAMES.hitStopKick, uppercut: FRAMES.hitStopUppercut };
+    const shakeMap = { punch: 12, kick: 18, uppercut: 24 };
+    world.hitStopFrames = hitStopMap[moveType];
+    triggerScreenShake(shakeMap[moveType]);
+    defender.hitFlash = moveType === 'uppercut' ? 8 : 6;
+
+    // Punch chain tracking: consecutive punch hits build toward uppercut
+    if (moveType === 'punch') {
+      attacker.punchChain++;
+      attacker.punchChainTimer = CONFIG.punchComboWindow;
+    } else if (moveType === 'uppercut') {
+      // Uppercut finisher — exhaustion locks out punching, kicks still allowed
+      attacker.punchChain = 0;
+      attacker.punchChainTimer = 0;
+      attacker.punchExhaustion = CONFIG.punchExhaustionCooldown;
+    } else {
+      // Kick resets punch chain
+      attacker.punchChain = 0; attacker.punchChainTimer = 0;
+    }
   }
 
   attacker.hitConfirmedThisState = true;
@@ -548,10 +611,12 @@ function resolveCombat() {
   p.facing = c.x > p.x ? 1 : -1;
   c.facing = p.x > c.x ? 1 : -1;
 
-  if (p.state === State.PunchActive) tryHit(p, c, CONFIG.punch, false);
-  if (p.state === State.KickActive) tryHit(p, c, CONFIG.kick, true);
-  if (c.state === State.PunchActive) tryHit(c, p, CONFIG.punch, false);
-  if (c.state === State.KickActive) tryHit(c, p, CONFIG.kick, true);
+  if (p.state === State.PunchActive) tryHit(p, c, CONFIG.punch, 'punch');
+  if (p.state === State.KickActive) tryHit(p, c, CONFIG.kick, 'kick');
+  if (p.state === State.UppercutActive) tryHit(p, c, CONFIG.uppercut, 'uppercut');
+  if (c.state === State.PunchActive) tryHit(c, p, CONFIG.punch, 'punch');
+  if (c.state === State.KickActive) tryHit(c, p, CONFIG.kick, 'kick');
+  if (c.state === State.UppercutActive) tryHit(c, p, CONFIG.uppercut, 'uppercut');
 
   if (Math.abs(p.x - c.x) < CONFIG.physics.pushSeparation) {
     const overlap = CONFIG.physics.pushSeparation - Math.abs(p.x - c.x);
@@ -656,7 +721,7 @@ function resetRoundIfNeeded() {
     f.y = 560;
     f.buffer.length = 0;
     f.attackCooldown = 0;
-    f.comboCount = 0; f.comboTimer = 0; f.hitFlash = 0;
+    f.comboCount = 0; f.comboTimer = 0; f.hitFlash = 0; f.punchChain = 0; f.punchChainTimer = 0; f.punchExhaustion = 0;
     setState(f, State.Idle);
   });
   ui.announcement.textContent = '';
@@ -680,7 +745,7 @@ function resetMatch() {
     f.impulseX = 0; f.impulseY = 0;
     f.buffer.length = 0;
     f.attackCooldown = 0;
-    f.comboCount = 0; f.comboTimer = 0; f.hitFlash = 0;
+    f.comboCount = 0; f.comboTimer = 0; f.hitFlash = 0; f.punchChain = 0; f.punchChainTimer = 0; f.punchExhaustion = 0;
     setState(f, State.Idle);
   });
   ui.announcement.textContent = '';
@@ -757,11 +822,20 @@ function step() {
     return;
   }
 
-  // Decay combo timers and hit flash
+  // Decay combo timers, punch chain timers, and hit flash
   [world.player, world.cpu].forEach((f) => {
     if (f.comboTimer > 0) {
       f.comboTimer--;
       if (f.comboTimer <= 0) f.comboCount = 0;
+    }
+    if (f.punchChainTimer > 0) {
+      f.punchChainTimer--;
+      if (f.punchChainTimer <= 0) f.punchChain = 0;
+    }
+    if (f.punchExhaustion > 0) f.punchExhaustion--;
+    // Getting hit resets your punch chain
+    if (f.state === State.HitStun && f.stateFrame === 1) {
+      f.punchChain = 0; f.punchChainTimer = 0;
     }
     if (f.hitFlash > 0) f.hitFlash--;
   });

@@ -36,6 +36,9 @@ const ANIM_MAP = {
   Kick_Startup: 'Kick',
   Kick_Active: 'Kick',
   Kick_Recovery: 'Kick',
+  Uppercut_Startup: 'Punch',
+  Uppercut_Active: 'Punch',
+  Uppercut_Recovery: 'Punch',
   Hit_Stun: 'Death',
   Block_Stun: 'ThumbsUp',
   KO: 'Idle',  // base clip during KO; sequenced to Death after HeadSpin
