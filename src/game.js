@@ -1,4 +1,4 @@
-import { initScene, updateFighter, triggerScreenShake, render3d, koPhase } from './renderer3d.js';
+import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera } from './renderer3d.js';
 
 const TICK_RATE = 120;
 const DT = 1 / TICK_RATE;
@@ -618,7 +618,7 @@ function endRound() {
   if (winner) winner.roundWins++;
   ui.announcement.textContent = winner ? `${winner.id === 'player' ? 'Player' : 'CPU'} Wins Round` : 'Round Draw';
   // Freeze both fighters — KO'd fighters play death animation, winner idles
-  [p, c].forEach(f => { setState(f, f.health <= 0 ? State.KO : State.Idle); f.vx = 0; f.vy = 0; f.impulseX = 0; f.impulseY = 0; f.buffer.length = 0; f.attackCooldown = 0; });
+  [p, c].forEach(f => { setState(f, f.health <= 0 ? State.KO : State.Idle); f.vx = 0; f.vy = 0; f.impulseX = 0; f.impulseY = 0; f.buffer.length = 0; f.attackCooldown = 0; f.hitFlash = 0; });
   roundLockFrames = 180;
 }
 
@@ -727,6 +727,7 @@ function drawRoundDots(node, wins, type) {
 
 function render() {
   if (!rendererReady) return;
+  updateDynamicCamera(world.player, world.cpu);
   updateFighter('player', world.player);
   updateFighter('cpu', world.cpu);
   render3d();

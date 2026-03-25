@@ -21,6 +21,11 @@ const MIN_ZOOM = 8;   // closest
 const MAX_ZOOM = 30;  // farthest
 let cameraZ = DEFAULT_ZOOM;
 
+// Dynamic camera — Samurai Shodown-style zoom based on fighter distance
+let dynamicZoomTarget = DEFAULT_ZOOM;
+let dynamicCameraX = 0;            // horizontal tracking target
+const CAMERA_LERP_SPEED = 0.04;    // smooth follow rate (per frame)
+
 const ANIM_MAP = {
   Idle: 'Idle',
   Block: 'ThumbsUp',
@@ -685,6 +690,9 @@ export function updateFighter(fighterId, fighter) {
       if (flashIntensity > 0) {
         mesh.material.emissive = mesh.material.emissive || new THREE.Color();
         mesh.material.emissive.setHex(0xffffff);
+      } else {
+        // Clear emissive so the white doesn't stay stuck (e.g. after KO)
+        mesh.material.emissiveIntensity = 0;
       }
     }
   }
@@ -727,6 +735,26 @@ export function triggerScreenShake(intensity) {
   shakeDecay = intensity;
 }
 
+// Update dynamic camera zoom target based on fighter positions (game coords)
+export function updateDynamicCamera(player, cpu) {
+  const pWorld = gameToWorld(player.x, player.y);
+  const cWorld = gameToWorld(cpu.x, cpu.y);
+  const dx = Math.abs(pWorld.x - cWorld.x);
+
+  // Map fighter distance to zoom: close → zoom in, far → zoom out
+  // dx ranges roughly 0 (touching) to ~10 (full arena width)
+  const CLOSE_DIST = 1.0;   // fighters very close
+  const FAR_DIST = 7.0;     // fighters far apart
+  const ZOOM_CLOSE = isEmbedded ? 16 : 12;  // tight zoom when close
+  const ZOOM_FAR = isEmbedded ? 26 : 20;    // wide zoom when far
+
+  const t = Math.max(0, Math.min(1, (dx - CLOSE_DIST) / (FAR_DIST - CLOSE_DIST)));
+  dynamicZoomTarget = ZOOM_CLOSE + t * (ZOOM_FAR - ZOOM_CLOSE);
+
+  // Track midpoint between fighters horizontally
+  dynamicCameraX = (pWorld.x + cWorld.x) / 2;
+}
+
 export function resizeRenderer() {
   if (!renderer || !camera) return;
   const canvas = renderer.domElement;
@@ -761,9 +789,14 @@ export function render3d() {
     shakeOffset.y = 0;
   }
 
-  camera.position.x = shakeOffset.x;
+  // Smoothly lerp zoom and horizontal position toward dynamic targets
+  cameraZ += (dynamicZoomTarget - cameraZ) * CAMERA_LERP_SPEED;
+  cameraZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZ));
+
+  camera.position.x = dynamicCameraX + shakeOffset.x;
   camera.position.y = 4.5 + shakeOffset.y;
   camera.position.z = cameraZ;
+  cameraLookAt.x = dynamicCameraX;
   camera.lookAt(cameraLookAt);
 
   renderer.render(scene, camera);
