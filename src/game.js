@@ -1118,10 +1118,10 @@ const H = Math.SQRT1_2;  // 0.7071...
 const DEMO_POSES = {
   'tpose':      { UpperArmR: ID, LowerArmR: ID, UpperArmL: ID, LowerArmL: ID },
   'arms-up':    { UpperArmR: [0,-H,0,H], LowerArmR: ID, UpperArmL: [0,H,0,H], LowerArmL: ID },
-  'arms-fwd':   { UpperArmR: [H,0,0,H],  LowerArmR: ID, UpperArmL: [-H,0,0,H], LowerArmL: ID },
-  'arms-back':  { UpperArmR: [-H,0,0,H], LowerArmR: ID, UpperArmL: [H,0,0,H],  LowerArmL: ID },
-  'rfwd-lback': { UpperArmR: [H,0,0,H],  LowerArmR: ID, UpperArmL: [H,0,0,H],  LowerArmL: ID },
-  'lfwd-rback': { UpperArmR: [-H,0,0,H], LowerArmR: ID, UpperArmL: [-H,0,0,H], LowerArmL: ID },
+  'arms-fwd':   { UpperArmR: [-H,0,0,H], LowerArmR: ID, UpperArmL: [H,0,0,H],  LowerArmL: ID },
+  'arms-back':  { UpperArmR: [H,0,0,H],  LowerArmR: ID, UpperArmL: [-H,0,0,H], LowerArmL: ID },
+  'rfwd-lback': { UpperArmR: [-H,0,0,H], LowerArmR: ID, UpperArmL: [-H,0,0,H], LowerArmL: ID },
+  'lfwd-rback': { UpperArmR: [H,0,0,H],  LowerArmR: ID, UpperArmL: [H,0,0,H],  LowerArmL: ID },
 };
 
 // Palm rotation twists on LowerArm bones.
