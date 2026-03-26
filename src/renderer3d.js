@@ -1052,6 +1052,11 @@ export function resizeRenderer() {
   }
 }
 
+let demoPoseData = null; // { boneName: [x,y,z,w], ... } or null
+
+export function applyDemoPose(boneMap) { demoPoseData = boneMap; }
+export function clearDemoPose() { demoPoseData = null; }
+
 export function render3d() {
   if (!renderer) return;
   resizeRenderer();
@@ -1061,6 +1066,14 @@ export function render3d() {
   // Update animation mixers (skip when KO animation is fully done — freeze on last frame)
   if (mixers.player && koPhase.player !== 'done') mixers.player.update(delta);
   if (mixers.cpu && koPhase.cpu !== 'done') mixers.cpu.update(delta);
+
+  // Apply demo pose overrides AFTER mixer update (overrides animation)
+  if (demoPoseData && fighterModels.player) {
+    for (const [boneName, quat] of Object.entries(demoPoseData)) {
+      const bone = fighterModels.player.getObjectByName(boneName);
+      if (bone) bone.quaternion.set(quat[0], quat[1], quat[2], quat[3]);
+    }
+  }
 
   // Screen shake
   if (shakeDecay > 0) {

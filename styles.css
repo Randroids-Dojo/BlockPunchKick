@@ -193,6 +193,11 @@ html, body {
   white-space: nowrap;
 }
 .demo-quit-btn:active, .demo-speed-btn:active { opacity: 0.7; }
+.demo-section-label {
+  font-size: 0.65rem; font-weight: 600; text-transform: uppercase;
+  color: rgba(150,170,220,0.5); letter-spacing: 1px;
+  margin: 4px 0 2px; text-align: center;
+}
 .demo-moves {
   display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
 }
@@ -205,8 +210,19 @@ html, body {
   -webkit-tap-highlight-color: transparent;
   transition: background 0.1s, border-color 0.1s;
 }
-.demo-move-btn:active { transform: scale(0.95); }
-.demo-move-btn.active {
+.demo-move-btn:active, .demo-pose-btn:active, .demo-rot-btn:active { transform: scale(0.95); }
+.demo-pose-btn, .demo-rot-btn {
+  font-size: 0.85rem; font-weight: 600;
+  border: 1px solid rgba(100,130,200,0.3); border-radius: 8px;
+  padding: 8px 14px; color: #dde;
+  background: rgba(25,35,65,0.8);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s, border-color 0.1s;
+}
+.demo-pose-btn { border-color: rgba(120,180,100,0.4); }
+.demo-rot-btn { border-color: rgba(180,140,80,0.4); }
+.demo-move-btn.active, .demo-pose-btn.active, .demo-rot-btn.active {
   background: rgba(50,80,160,0.8);
   border-color: rgba(100,160,255,0.6);
   color: #fff;
