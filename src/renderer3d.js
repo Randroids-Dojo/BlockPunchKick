@@ -826,6 +826,8 @@ export function updateFighter(fighterId, fighter) {
   if (fighter.state.startsWith('Punch_') && fighter.punchChain >= 1) {
     clipName = 'PunchLeft';
   }
+  // Skip animation playback entirely when demo pose is active for this fighter
+  if (demoPoseData && fighterId === 'player') return;
   // Don't override clip during death/done phase of KO sequence
   if (koPhase[fighterId] !== 'death' && koPhase[fighterId] !== 'done') {
     playClip(fighterId, clipName);
@@ -1070,7 +1072,20 @@ function getBone(model, name) {
   return bone;
 }
 
-export function applyDemoPose(boneMap) { demoPoseData = boneMap; }
+export function applyDemoPose(boneMap) {
+  demoPoseData = boneMap;
+  // Log bone names on first pose application for debugging
+  if (boneMap && fighterModels.player && !boneCache._logged) {
+    boneCache._logged = true;
+    const names = [];
+    fighterModels.player.traverse(obj => { if (obj.isBone) names.push(obj.name); });
+    console.log('Model bone names:', names.join(', '));
+    for (const name of Object.keys(boneMap)) {
+      const found = getBone(fighterModels.player, name);
+      console.log(`Bone lookup "${name}":`, found ? 'FOUND' : 'NOT FOUND');
+    }
+  }
+}
 export function clearDemoPose() { demoPoseData = null; }
 
 export function render3d() {
