@@ -706,6 +706,9 @@ export async function initScene(canvas) {
   playerUppercutAction.clampWhenFinished = true;
   actions.player['Uppercut'] = playerUppercutAction;
 
+  // Register pose clips for demo mode
+  poseActions = registerPoseClips(playerMixer);
+
   // HeadSpin overlay for player
   if (actions.player['HeadSpin']) {
     const hs = actions.player['HeadSpin'];
@@ -1052,39 +1055,142 @@ export function resizeRenderer() {
   }
 }
 
-let demoPoseData = null; // { boneName: [x,y,z,w], ... } or null
-const boneCache = {}; // cached bone references by name
+// ─── Pose System ─────────────────────────────────────────────────
+// Uses AnimationClips through the mixer (proven approach) instead of
+// fragile direct bone manipulation. Poses are computed at runtime
+// from the model's actual bone transforms.
+//
+// Axis reference (from rest/idle, confirmed through trial):
+//   UpperArm X rotation = forward(+) / back(-)
+//   UpperArm Z rotation = up(+R,-L) / down(-R,+L)
+//   UpperArm Y rotation = outward(-R,+L) / inward(+R,-L)
+//   LowerArm Y rotation = forearm twist (palm rotation)
 
-function getBone(model, name) {
-  if (boneCache[name]) return boneCache[name];
-  // Try direct lookup first, then traverse with dot-stripped matching
-  let bone = model.getObjectByName(name);
-  if (!bone) {
-    model.traverse(obj => {
-      if (!bone && (obj.name === name || obj.name.replace(/\./g, '') === name)) {
-        bone = obj;
-      }
-    });
-  }
-  if (bone) boneCache[name] = bone;
-  return bone;
+const IDLE_BONES = {
+  Body:      [0.0000, 0.0000, -0.0000, 1.0000],
+  Head:      [-0.0309, -0.0029, -0.0013, 0.9995],
+  UpperArmL: [-0.0546, -0.6899, 0.0692, 0.7185],
+  LowerArmL: [0.3100, 0.4993, -0.3649, 0.7221],
+  UpperArmR: [0.0436, 0.8046, 0.0575, 0.5895],
+  LowerArmR: [0.2578, -0.5525, 0.4427, 0.6575],
+  UpperLegL: [0.9855, 0.0176, -0.0843, 0.1461],
+  LowerLegL: [0.2772, 0.0000, 0.0000, 0.9608],
+  UpperLegR: [0.9795, -0.0257, 0.1373, 0.1449],
+  LowerLegR: [0.2772, 0.0000, 0.0000, 0.9608],
+};
+
+// Compose a rotation on top of an idle bone quaternion
+function idleCompose(boneName, rx, ry, rz) {
+  const idle = new THREE.Quaternion(...IDLE_BONES[boneName]);
+  const rot = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz));
+  return idle.multiply(rot);
 }
 
-export function applyDemoPose(boneMap) {
-  demoPoseData = boneMap;
-  // Log bone names on first pose application for debugging
-  if (boneMap && fighterModels.player && !boneCache._logged) {
-    boneCache._logged = true;
-    const names = [];
-    fighterModels.player.traverse(obj => { if (obj.isBone) names.push(obj.name); });
-    console.log('Model bone names:', names.join(', '));
-    for (const name of Object.keys(boneMap)) {
-      const found = getBone(fighterModels.player, name);
-      console.log(`Bone lookup "${name}":`, found ? 'FOUND' : 'NOT FOUND');
-    }
+// Build a hold-pose AnimationClip. Includes ALL bones so it fully replaces
+// the current animation (body+legs use idle values, arms use custom values).
+function createHoldPoseClip(name, armOverrides) {
+  const bones = { ...IDLE_BONES, ...armOverrides };
+  const tracks = [];
+  for (const [boneName, q] of Object.entries(bones)) {
+    const vals = q instanceof THREE.Quaternion ? [q.x, q.y, q.z, q.w] : q;
+    tracks.push(new THREE.QuaternionKeyframeTrack(
+      `${boneName}.quaternion`, [0, 0.5], [...vals, ...vals]
+    ));
   }
+  return new THREE.AnimationClip(name, 0.5, tracks);
 }
-export function clearDemoPose() { demoPoseData = null; }
+
+let activePoseAction = null;
+let activePoseName = null;
+
+// Register all pose clips with the player mixer. Called during initScene.
+function registerPoseClips(mixer) {
+  const H = Math.PI / 2; // 90 degrees
+
+  const poses = {
+    'tpose': {
+      UpperArmR: idleCompose('UpperArmR', 0, -H, 0),
+      LowerArmR: idleCompose('LowerArmR', 0, -H, 0),
+      UpperArmL: idleCompose('UpperArmL', 0, H, 0),
+      LowerArmL: idleCompose('LowerArmL', 0, H, 0),
+    },
+    'arms-up': {
+      UpperArmR: idleCompose('UpperArmR', 0, 0, H),
+      LowerArmR: idleCompose('LowerArmR', 0, 0, H),
+      UpperArmL: idleCompose('UpperArmL', 0, 0, -H),
+      LowerArmL: idleCompose('LowerArmL', 0, 0, -H),
+    },
+    'arms-fwd': {
+      UpperArmR: idleCompose('UpperArmR', H, 0, 0),
+      LowerArmR: idleCompose('LowerArmR', H, 0, 0),
+      UpperArmL: idleCompose('UpperArmL', H, 0, 0),
+      LowerArmL: idleCompose('LowerArmL', H, 0, 0),
+    },
+    'arms-back': {
+      UpperArmR: idleCompose('UpperArmR', -H, 0, 0),
+      LowerArmR: idleCompose('LowerArmR', -H, 0, 0),
+      UpperArmL: idleCompose('UpperArmL', -H, 0, 0),
+      LowerArmL: idleCompose('LowerArmL', -H, 0, 0),
+    },
+    'rfwd-lback': {
+      UpperArmR: idleCompose('UpperArmR', H, 0, 0),
+      LowerArmR: idleCompose('LowerArmR', H, 0, 0),
+      UpperArmL: idleCompose('UpperArmL', -H, 0, 0),
+      LowerArmL: idleCompose('LowerArmL', -H, 0, 0),
+    },
+    'lfwd-rback': {
+      UpperArmR: idleCompose('UpperArmR', -H, 0, 0),
+      LowerArmR: idleCompose('LowerArmR', -H, 0, 0),
+      UpperArmL: idleCompose('UpperArmL', H, 0, 0),
+      LowerArmL: idleCompose('LowerArmL', H, 0, 0),
+    },
+  };
+
+  const poseActions = {};
+  for (const [poseName, armOverrides] of Object.entries(poses)) {
+    const clip = createHoldPoseClip(`Pose_${poseName}`, armOverrides);
+    const action = mixer.clipAction(clip);
+    action.setLoop(THREE.LoopRepeat);
+    action.clampWhenFinished = true;
+    poseActions[poseName] = action;
+  }
+  return poseActions;
+}
+
+let poseActions = {};
+
+export function playDemoPose(poseName) {
+  // Toggle off if same pose
+  if (activePoseName === poseName) {
+    stopDemoPose();
+    return false;
+  }
+  const action = poseActions[poseName];
+  if (!action) return false;
+
+  // Crossfade from current animation to pose
+  if (activePoseAction) {
+    activePoseAction.crossFadeTo(action, 0.15, false);
+  }
+  action.reset().setEffectiveWeight(1).play();
+  activePoseAction = action;
+  activePoseName = poseName;
+  return true;
+}
+
+export function stopDemoPose() {
+  if (activePoseAction) {
+    activePoseAction.fadeOut(0.15);
+    activePoseAction = null;
+  }
+  activePoseName = null;
+}
+
+export function getActivePoseName() { return activePoseName; }
+
+// Legacy aliases for game.js compatibility
+export function applyDemoPose(boneMap) { /* no-op, replaced by playDemoPose */ }
+export function clearDemoPose() { stopDemoPose(); }
 
 export function render3d() {
   if (!renderer) return;
@@ -1096,17 +1202,6 @@ export function render3d() {
   if (mixers.player && koPhase.player !== 'done') mixers.player.update(delta);
   if (mixers.cpu && koPhase.cpu !== 'done') mixers.cpu.update(delta);
 
-  // Apply demo pose: override ONLY the specified arm bones after mixer runs
-  // The mixer still poses the body/legs via Idle animation
-  if (demoPoseData && fighterModels.player) {
-    for (const [boneName, quat] of Object.entries(demoPoseData)) {
-      const bone = getBone(fighterModels.player, boneName);
-      if (bone) {
-        bone.quaternion.set(quat[0], quat[1], quat[2], quat[3]);
-        bone.updateMatrix();
-      }
-    }
-  }
 
 
   // Screen shake

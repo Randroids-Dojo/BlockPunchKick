@@ -1,4 +1,4 @@
-import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible, setGlobalTimeScale, applyDemoPose, clearDemoPose } from './renderer3d.js';
+import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible, setGlobalTimeScale, playDemoPose, stopDemoPose } from './renderer3d.js';
 
 const TICK_RATE = 120;
 const DT = 1 / TICK_RATE;
@@ -921,8 +921,7 @@ function showTitleScreen() {
   setGlobalTimeScale(1.0);
   demoSpeedIndex = 0;
   currentDemoPose = null;
-  currentDemoRot = 'none';
-  clearDemoPose();
+  stopDemoPose();
   setGameUIVisible(false);
   // Show both fighters idling at default positions for the background
   setFighterVisible('player', true);
@@ -988,7 +987,7 @@ function triggerDemoMove(moveKey) {
 
   // Clear any active pose
   currentDemoPose = null;
-  clearDemoPose();
+  stopDemoPose();
   demoPoseBtns.forEach(btn => btn.classList.remove('active'));
 
   // Reset fighter to clean state before starting new move
@@ -1092,67 +1091,13 @@ demoSpeedBtn.addEventListener('pointerdown', (e) => {
 });
 
 // ─── Demo Poses ─────────────────────────────────────────────────
-// Quaternion helper: multiply q1 * q2
-function qmul(a, b) {
-  return [
-    a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1],
-    a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0],
-    a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3],
-    a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2],
-  ];
-}
-// Quaternion from axis-angle (axis must be unit, angle in radians)
-function qaxis(ax, ay, az, angle) {
-  const s = Math.sin(angle / 2), c = Math.cos(angle / 2);
-  return [ax * s, ay * s, az * s, c];
-}
-
-const ID = [0, 0, 0, 1]; // identity
-const H = Math.SQRT1_2;  // 0.7071...
-
-// All poses defined directly from T-pose (identity).
-// Proven: Y rotation = frontal plane. +Y = down (idle direction), -Y = up.
-// For left arm: mirrored, so -Y = down, +Y = up.
-// Forward/back: X rotation (sagittal plane). Right: +X = fwd, -X = back.
-// Left arm mirrored: -X = fwd, +X = back.
-const DEMO_POSES = {
-  'tpose':      { UpperArmR: [0,-H,0,H], LowerArmR: [0,-H,0,H], UpperArmL: [0,H,0,H],  LowerArmL: [0,H,0,H] },
-  'arms-up':    { UpperArmR: [0,0,H,H],  LowerArmR: [0,0,H,H], UpperArmL: [0,0,-H,H], LowerArmL: [0,0,-H,H] },
-  'arms-fwd':   { UpperArmR: [H,0,0,H],  LowerArmR: ID, UpperArmL: [H,0,0,H],  LowerArmL: ID },
-  'arms-back':  { UpperArmR: [-H,0,0,H], LowerArmR: ID, UpperArmL: [-H,0,0,H], LowerArmL: ID },
-  'rfwd-lback': { UpperArmR: [H,0,0,H],  LowerArmR: ID, UpperArmL: [-H,0,0,H], LowerArmL: ID },
-  'lfwd-rback': { UpperArmR: [-H,0,0,H], LowerArmR: ID, UpperArmL: [H,0,0,H],  LowerArmL: ID },
-};
-
-// Palm rotation twists on LowerArm bones.
-// Twist axis for forearm in T-pose is along its length.
-// Try Y-axis rotation; if wrong axis, will swap to X or Z.
-const DEMO_ROTATIONS = {
-  'none':       { LowerArmR: ID, LowerArmL: ID },
-  'palms-up':   { LowerArmR: [0,H,0,H],   LowerArmL: [0,-H,0,H]  },
-  'palms-down': { LowerArmR: [0,-H,0,H],  LowerArmL: [0,H,0,H]   },
-  'palms-out':  { LowerArmR: [0,1,0,0],   LowerArmL: [0,-1,0,0]  },
-  'palms-in':   { LowerArmR: ID, LowerArmL: ID },
-};
+// Uses the AnimationClip-based pose system from renderer3d.js.
+// Poses are played through the mixer (proven approach), not direct bone manipulation.
 
 let currentDemoPose = null;
-let currentDemoRot = 'none';
 
 const demoPoseBtns = demoPanel.querySelectorAll('.demo-pose-btn');
 const demoRotBtns = demoPanel.querySelectorAll('.demo-rot-btn');
-
-function applyCurrentPose() {
-  if (!currentDemoPose) { clearDemoPose(); return; }
-  const pose = DEMO_POSES[currentDemoPose];
-  const rot = DEMO_ROTATIONS[currentDemoRot] || DEMO_ROTATIONS['none'];
-  if (!pose) return;
-
-  // Merge pose + rotation: compose forearm twist on top of pose's lower arm
-  const merged = { ...pose };
-  if (rot.LowerArmR) merged.LowerArmR = qmul(pose.LowerArmR || ID, rot.LowerArmR);
-  if (rot.LowerArmL) merged.LowerArmL = qmul(pose.LowerArmL || ID, rot.LowerArmL);
-  applyDemoPose(merged);
-}
 
 function selectDemoPose(poseKey) {
   // Clear any active move
@@ -1161,31 +1106,23 @@ function selectDemoPose(poseKey) {
   demoMoveBtns.forEach(btn => btn.classList.remove('active'));
   resetDemoFighter();
 
-  if (currentDemoPose === poseKey) {
-    // Toggle off
-    currentDemoPose = null;
-    clearDemoPose();
-  } else {
-    currentDemoPose = poseKey;
-    applyCurrentPose();
-  }
-  demoPoseBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.pose === currentDemoPose));
-  const label = currentDemoPose ? demoPoseBtns[0]?.parentElement.querySelector(`[data-pose="${currentDemoPose}"]`)?.textContent : '';
-  demoCaptionEl.textContent = label || '';
-}
+  const wasActive = playDemoPose(poseKey); // toggles off if same
+  currentDemoPose = wasActive ? poseKey : null;
 
-function selectDemoRotation(rotKey) {
-  currentDemoRot = rotKey;
-  demoRotBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.rot === rotKey));
-  if (currentDemoPose) applyCurrentPose();
+  demoPoseBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.pose === currentDemoPose));
+  const label = currentDemoPose
+    ? demoPanel.querySelector(`[data-pose="${currentDemoPose}"]`)?.textContent
+    : '';
+  demoCaptionEl.textContent = label || '';
 }
 
 // Wire up pose buttons
 demoPoseBtns.forEach(btn => {
   btn.addEventListener('pointerdown', (e) => { e.preventDefault(); selectDemoPose(btn.dataset.pose); });
 });
+// Palm rotation buttons (TODO: implement via mixer once poses are confirmed working)
 demoRotBtns.forEach(btn => {
-  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); selectDemoRotation(btn.dataset.rot); });
+  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); });
 });
 
 // ─── Button Handlers ────────────────────────────────────────────
