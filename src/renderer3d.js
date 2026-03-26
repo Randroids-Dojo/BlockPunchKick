@@ -16,10 +16,14 @@ const cameraLookAt = new THREE.Vector3(0, 1.5, 0);
 
 // Zoom state — default pulled back to show full arena
 const isEmbedded = window.self !== window.top;
-const DEFAULT_ZOOM = isEmbedded ? 24 : 18;
+const DEFAULT_ZOOM = isEmbedded ? 28 : 22;
 const MIN_ZOOM = 8;   // closest
-const MAX_ZOOM = 30;  // farthest
-let cameraZ = DEFAULT_ZOOM;
+const MAX_ZOOM = 40;  // farthest
+let cameraRadius = DEFAULT_ZOOM;
+
+// Orbital camera — angle around the ring (0 = front, PI/2 = side)
+let cameraOrbitAngle = 0;
+let cameraOrbitTarget = 0;
 
 // Dynamic camera — Samurai Shodown-style zoom based on fighter distance
 let dynamicZoomTarget = DEFAULT_ZOOM;
@@ -36,6 +40,9 @@ const ANIM_MAP = {
   Kick_Startup: 'Kick',
   Kick_Active: 'Kick',
   Kick_Recovery: 'Kick',
+  Uppercut_Startup: 'Uppercut',
+  Uppercut_Active: 'Uppercut',
+  Uppercut_Recovery: 'Uppercut',
   Hit_Stun: 'Death',
   Block_Stun: 'ThumbsUp',
   KO: 'Idle',  // base clip during KO; sequenced to Death after HeadSpin
@@ -273,6 +280,202 @@ function createKickClip(model) {
   return new THREE.AnimationClip('Kick', 0.5, tracks);
 }
 
+// Build a procedural left-jab AnimationClip (2nd punch in combo chain).
+// Mirrors the right-hand punch: left arm extends forward, right arm guards.
+// Body twists into the punch for weight transfer.
+function createPunchLeftClip() {
+  const idle = {
+    Body:      [0.0000, 0.0000, -0.0000, 1.0000],
+    Head:      [-0.0309, -0.0029, -0.0013, 0.9995],
+    UpperArmL: [-0.0546, -0.6899, 0.0692, 0.7185],
+    LowerArmL: [0.3100, 0.4993, -0.3649, 0.7221],
+    UpperArmR: [0.0436, 0.8046, 0.0575, 0.5895],
+    LowerArmR: [0.2578, -0.5525, 0.4427, 0.6575],
+  };
+
+  const punch = {
+    // --- Left arm (punching) ---
+    // Windup: pull shoulder back slightly, chamber fist
+    UpperArmL_windup:  [-0.12, -0.74, 0.10, 0.66],
+    LowerArmL_windup:  [0.45, 0.42, -0.38, 0.69],
+    // Extend: arm shoots forward, elbow straight
+    UpperArmL_extend:  [0.50, -0.50, -0.28, 0.65],
+    LowerArmL_extend:  [0.05, 0.10, -0.05, 0.99],
+
+    // --- Right arm (guard, tucked in) ---
+    UpperArmR_guard:   [-0.08, 0.78, 0.12, 0.61],
+    LowerArmR_guard:   [0.38, -0.48, 0.42, 0.67],
+
+    // --- Body twist into punch ---
+    Body_windup:       [0.00, 0.05, 0.00, 1.00],   // slight twist away
+    Body_extend:       [0.00, -0.07, 0.00, 1.00],   // twist into punch
+  };
+
+  // Keyframes: idle → windup → extend → hold → retract
+  const times = [0, 0.05, 0.11, 0.16, 0.35];
+
+  const tracks = [
+    // Left arm (punching)
+    new THREE.QuaternionKeyframeTrack('UpperArmL.quaternion', times, [
+      ...idle.UpperArmL,
+      ...punch.UpperArmL_windup,
+      ...punch.UpperArmL_extend,
+      ...punch.UpperArmL_extend,
+      ...idle.UpperArmL,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerArmL.quaternion', times, [
+      ...idle.LowerArmL,
+      ...punch.LowerArmL_windup,
+      ...punch.LowerArmL_extend,
+      ...punch.LowerArmL_extend,
+      ...idle.LowerArmL,
+    ]),
+
+    // Right arm (guard)
+    new THREE.QuaternionKeyframeTrack('UpperArmR.quaternion', times, [
+      ...idle.UpperArmR,
+      ...punch.UpperArmR_guard,
+      ...punch.UpperArmR_guard,
+      ...punch.UpperArmR_guard,
+      ...idle.UpperArmR,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerArmR.quaternion', times, [
+      ...idle.LowerArmR,
+      ...punch.LowerArmR_guard,
+      ...punch.LowerArmR_guard,
+      ...punch.LowerArmR_guard,
+      ...idle.LowerArmR,
+    ]),
+
+    // Body twist
+    new THREE.QuaternionKeyframeTrack('Body.quaternion', times, [
+      ...idle.Body,
+      ...punch.Body_windup,
+      ...punch.Body_extend,
+      ...punch.Body_extend,
+      ...idle.Body,
+    ]),
+
+    // Head stays neutral
+    new THREE.QuaternionKeyframeTrack('Head.quaternion', times, [
+      ...idle.Head, ...idle.Head, ...idle.Head, ...idle.Head, ...idle.Head,
+    ]),
+  ];
+
+  return new THREE.AnimationClip('PunchLeft', 0.35, tracks);
+}
+
+// Build a procedural uppercut AnimationClip (3rd punch combo finisher).
+// Body dips down for the windup, then rises as the right arm swings upward.
+// More dramatic motion with big body commitment.
+function createUppercutClip() {
+  const idle = {
+    Body:      [0.0000, 0.0000, -0.0000, 1.0000],
+    Head:      [-0.0309, -0.0029, -0.0013, 0.9995],
+    UpperArmL: [-0.0546, -0.6899, 0.0692, 0.7185],
+    LowerArmL: [0.3100, 0.4993, -0.3649, 0.7221],
+    UpperArmR: [0.0436, 0.8046, 0.0575, 0.5895],
+    LowerArmR: [0.2578, -0.5525, 0.4427, 0.6575],
+    UpperLegL: [0.9855, 0.0176, -0.0843, 0.1461],
+    LowerLegL: [0.2772, 0.0000, 0.0000, 0.9608],
+    UpperLegR: [0.9795, -0.0257, 0.1373, 0.1449],
+    LowerLegR: [0.2772, 0.0000, 0.0000, 0.9608],
+  };
+
+  const uc = {
+    // --- Body: dip down then rise up ---
+    Body_dip:     [0.10, 0.00, 0.00, 0.995],    // lean forward (deep crouch)
+    Body_rise:    [-0.15, 0.00, 0.00, 0.989],    // lean back (explosive rise)
+
+    // --- Right arm (uppercut): drops low then swings forward and UP ---
+    // Computed by composing rotations on the idle UpperArmR quaternion:
+    //   idle = [0.04, 0.80, 0.06, 0.59] (~108° around Y, arm at side)
+    //   Dip = idle * Quat(-40° around local X) → arm pulled back/down
+    //   Rise = idle * Quat(+90° around local X) → arm swung forward and up
+    UpperArmR_dip:    [-0.16, 0.74, 0.33, 0.57],    // arm pulled back and low
+    LowerArmR_dip:    [0.55, -0.40, 0.20, 0.71],    // bent tight, fist at hip
+    UpperArmR_rise:   [0.45, 0.61, -0.53, 0.39],    // arm forward and UP (90° raise)
+    LowerArmR_rise:   [0.10, -0.35, 0.15, 0.92],    // forearm extended, palm inward
+
+    // --- Left arm (guard position) ---
+    UpperArmL_guard:  [0.23, -0.77, -0.09, 0.59],
+    LowerArmL_guard:  [0.15, 0.52, -0.66, 0.53],
+
+    // --- Legs: slight crouch on dip ---
+    UpperLegL_dip:    [0.9750, 0.0176, -0.0843, 0.2050],
+    LowerLegL_dip:    [0.3600, 0.0000, 0.0000, 0.9330],
+    UpperLegR_dip:    [0.9690, -0.0257, 0.1373, 0.2050],
+    LowerLegR_dip:    [0.3600, 0.0000, 0.0000, 0.9330],
+  };
+
+  // Keyframes: idle → dip/windup → rise/extend → hold → retract
+  const times = [0, 0.08, 0.16, 0.24, 0.48];
+
+  const tracks = [
+    // Body
+    new THREE.QuaternionKeyframeTrack('Body.quaternion', times, [
+      ...idle.Body,
+      ...uc.Body_dip,
+      ...uc.Body_rise,
+      ...uc.Body_rise,
+      ...idle.Body,
+    ]),
+
+    // Right arm (uppercut)
+    new THREE.QuaternionKeyframeTrack('UpperArmR.quaternion', times, [
+      ...idle.UpperArmR,
+      ...uc.UpperArmR_dip,
+      ...uc.UpperArmR_rise,
+      ...uc.UpperArmR_rise,
+      ...idle.UpperArmR,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerArmR.quaternion', times, [
+      ...idle.LowerArmR,
+      ...uc.LowerArmR_dip,
+      ...uc.LowerArmR_rise,
+      ...uc.LowerArmR_rise,
+      ...idle.LowerArmR,
+    ]),
+
+    // Left arm (guard)
+    new THREE.QuaternionKeyframeTrack('UpperArmL.quaternion', times, [
+      ...idle.UpperArmL,
+      ...uc.UpperArmL_guard,
+      ...uc.UpperArmL_guard,
+      ...uc.UpperArmL_guard,
+      ...idle.UpperArmL,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerArmL.quaternion', times, [
+      ...idle.LowerArmL,
+      ...uc.LowerArmL_guard,
+      ...uc.LowerArmL_guard,
+      ...uc.LowerArmL_guard,
+      ...idle.LowerArmL,
+    ]),
+
+    // Head stays neutral
+    new THREE.QuaternionKeyframeTrack('Head.quaternion', times, [
+      ...idle.Head, ...idle.Head, ...idle.Head, ...idle.Head, ...idle.Head,
+    ]),
+
+    // Legs: slight crouch on dip, return to idle on rise
+    new THREE.QuaternionKeyframeTrack('UpperLegL.quaternion', times, [
+      ...idle.UpperLegL, ...uc.UpperLegL_dip, ...idle.UpperLegL, ...idle.UpperLegL, ...idle.UpperLegL,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerLegL.quaternion', times, [
+      ...idle.LowerLegL, ...uc.LowerLegL_dip, ...idle.LowerLegL, ...idle.LowerLegL, ...idle.LowerLegL,
+    ]),
+    new THREE.QuaternionKeyframeTrack('UpperLegR.quaternion', times, [
+      ...idle.UpperLegR, ...uc.UpperLegR_dip, ...idle.UpperLegR, ...idle.UpperLegR, ...idle.UpperLegR,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerLegR.quaternion', times, [
+      ...idle.LowerLegR, ...uc.LowerLegR_dip, ...idle.LowerLegR, ...idle.LowerLegR, ...idle.LowerLegR,
+    ]),
+  ];
+
+  return new THREE.AnimationClip('Uppercut', 0.48, tracks);
+}
+
 // Map game world coords to 3D scene coords
 // Game arena: x 100-1180, y 430-600
 // 3D scene: x roughly -5 to 5, z for depth
@@ -294,8 +497,8 @@ export async function initScene(canvas) {
   camera.position.set(0, 4.5, DEFAULT_ZOOM);
   camera.lookAt(0, 1.5, 0);
 
-  // Pinch-to-zoom on canvas
-  setupPinchZoom(canvas);
+  // Camera controls: scroll/pinch to zoom, right-drag/two-finger rotate
+  setupCameraControls(canvas);
 
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setSize(rect.width, rect.height, false);
@@ -484,12 +687,27 @@ export async function initScene(canvas) {
     actions.player[clip.name] = action;
   }
 
-  // Register procedural kick clip for player
+  // Register procedural clips for player
   const kickClip = createKickClip(playerModel);
   const playerKickAction = playerMixer.clipAction(kickClip);
   playerKickAction.setLoop(THREE.LoopOnce);
   playerKickAction.clampWhenFinished = true;
   actions.player['Kick'] = playerKickAction;
+
+  const punchLeftClip = createPunchLeftClip();
+  const playerPunchLeftAction = playerMixer.clipAction(punchLeftClip);
+  playerPunchLeftAction.setLoop(THREE.LoopOnce);
+  playerPunchLeftAction.clampWhenFinished = true;
+  actions.player['PunchLeft'] = playerPunchLeftAction;
+
+  const uppercutClip = createUppercutClip();
+  const playerUppercutAction = playerMixer.clipAction(uppercutClip);
+  playerUppercutAction.setLoop(THREE.LoopOnce);
+  playerUppercutAction.clampWhenFinished = true;
+  actions.player['Uppercut'] = playerUppercutAction;
+
+  // Register pose clips for demo mode
+  poseActions = registerPoseClips(playerMixer);
 
   // HeadSpin overlay for player
   if (actions.player['HeadSpin']) {
@@ -531,11 +749,21 @@ export async function initScene(canvas) {
     actions.cpu[clip.name] = action;
   }
 
-  // Register procedural kick clip for CPU
+  // Register procedural clips for CPU
   const cpuKickAction = cpuMixer.clipAction(kickClip);
   cpuKickAction.setLoop(THREE.LoopOnce);
   cpuKickAction.clampWhenFinished = true;
   actions.cpu['Kick'] = cpuKickAction;
+
+  const cpuPunchLeftAction = cpuMixer.clipAction(punchLeftClip);
+  cpuPunchLeftAction.setLoop(THREE.LoopOnce);
+  cpuPunchLeftAction.clampWhenFinished = true;
+  actions.cpu['PunchLeft'] = cpuPunchLeftAction;
+
+  const cpuUppercutAction = cpuMixer.clipAction(uppercutClip);
+  cpuUppercutAction.setLoop(THREE.LoopOnce);
+  cpuUppercutAction.clampWhenFinished = true;
+  actions.cpu['Uppercut'] = cpuUppercutAction;
 
   // HeadSpin overlay for CPU
   if (actions.cpu['HeadSpin']) {
@@ -597,6 +825,10 @@ export function updateFighter(fighterId, fighter) {
   if (fighter.state === 'Move') {
     clipName = speed > 180 ? 'Running' : 'Walking';
   }
+  // 2nd punch in combo chain uses the left-arm jab animation
+  if (fighter.state.startsWith('Punch_') && fighter.punchChain >= 1) {
+    clipName = 'PunchLeft';
+  }
   // Don't override clip during death/done phase of KO sequence
   if (koPhase[fighterId] !== 'death' && koPhase[fighterId] !== 'done') {
     playClip(fighterId, clipName);
@@ -624,6 +856,15 @@ export function updateFighter(fighterId, fighter) {
     } else if (fighter.state === 'Kick_Recovery') {
       // Fast retract back to idle
       currentAction.timeScale = 2.5;
+    } else if (fighter.state === 'Uppercut_Startup') {
+      // Fast dip into the windup crouch
+      currentAction.timeScale = 2.2;
+    } else if (fighter.state === 'Uppercut_Active') {
+      // Slow through the rising extension for impact feel
+      currentAction.timeScale = 0.35;
+    } else if (fighter.state === 'Uppercut_Recovery') {
+      // Return from uppercut pose
+      currentAction.timeScale = 1.5;
     } else if (fighter.state.includes('Startup')) {
       currentAction.timeScale = 1.5;
     } else if (fighter.state.includes('Recovery')) {
@@ -698,38 +939,84 @@ export function updateFighter(fighterId, fighter) {
   }
 }
 
-function setupPinchZoom(canvas) {
+function setupCameraControls(canvas) {
   const pointers = new Map();
+  let prevTwoFingerAngle = null;
+  let prevTwoFingerDist = null;
 
   canvas.addEventListener('pointerdown', (e) => {
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
   });
 
   canvas.addEventListener('pointermove', (e) => {
     if (!pointers.has(e.pointerId)) return;
+    const prev = pointers.get(e.pointerId);
+
     if (pointers.size === 2) {
+      // Two-finger: pinch to zoom + angle to rotate
       const pts = [...pointers.values()];
       const oldDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const oldAngle = Math.atan2(pts[0].y - pts[1].y, pts[0].x - pts[1].x);
+
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
       const newPts = [...pointers.values()];
       const newDist = Math.hypot(newPts[0].x - newPts[1].x, newPts[0].y - newPts[1].y);
-      const scale = oldDist / newDist;
-      cameraZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZ * scale));
+      const newAngle = Math.atan2(newPts[0].y - newPts[1].y, newPts[0].x - newPts[1].x);
+
+      // Zoom from pinch distance change
+      if (prevTwoFingerDist !== null) {
+        const scale = prevTwoFingerDist / newDist;
+        cameraRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraRadius * scale));
+      }
+      prevTwoFingerDist = newDist;
+
+      // Rotate from two-finger angle change
+      if (prevTwoFingerAngle !== null) {
+        let deltaAngle = newAngle - prevTwoFingerAngle;
+        // Normalize to [-PI, PI]
+        if (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
+        if (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
+        cameraOrbitTarget += deltaAngle * 1.5;
+      }
+      prevTwoFingerAngle = newAngle;
+
+    } else if (pointers.size === 1 && prev.button === 2) {
+      // Right-click drag: rotate orbit (desktop)
+      const dx = e.clientX - prev.x;
+      cameraOrbitTarget += dx * 0.008;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
     } else {
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
     }
   });
 
-  const removePointer = (e) => pointers.delete(e.pointerId);
+  const removePointer = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) {
+      prevTwoFingerAngle = null;
+      prevTwoFingerDist = null;
+    }
+  };
   canvas.addEventListener('pointerup', removePointer);
   canvas.addEventListener('pointercancel', removePointer);
+
+  // Prevent context menu on right-click
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // Scroll wheel zoom for desktop
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    cameraZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZ + e.deltaY * 0.01));
+    cameraRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraRadius + e.deltaY * 0.02));
   }, { passive: false });
 }
+
+export function setFighterVisible(fighterId, visible) {
+  const model = fighterModels[fighterId];
+  if (model) model.visible = visible;
+}
+
+let globalTimeScale = 1.0;
+export function setGlobalTimeScale(scale) { globalTimeScale = scale; }
 
 export function triggerScreenShake(intensity) {
   shakeDecay = intensity;
@@ -745,8 +1032,8 @@ export function updateDynamicCamera(player, cpu) {
   // dx ranges roughly 0 (touching) to ~10 (full arena width)
   const CLOSE_DIST = 0.8;   // fighters very close
   const FAR_DIST = 6.0;     // fighters far apart
-  const ZOOM_CLOSE = isEmbedded ? 13 : 9;   // dramatic close-up
-  const ZOOM_FAR = isEmbedded ? 28 : 22;    // wide shot when far
+  const ZOOM_CLOSE = isEmbedded ? 18 : 14;   // dramatic close-up
+  const ZOOM_FAR = isEmbedded ? 32 : 26;     // wide shot when far
 
   const t = Math.max(0, Math.min(1, (dx - CLOSE_DIST) / (FAR_DIST - CLOSE_DIST)));
   dynamicZoomTarget = ZOOM_CLOSE + t * (ZOOM_FAR - ZOOM_CLOSE);
@@ -768,15 +1055,223 @@ export function resizeRenderer() {
   }
 }
 
+// ─── Pose System ─────────────────────────────────────────────────
+// Uses AnimationClips through the mixer (proven approach) instead of
+// fragile direct bone manipulation. Poses are computed at runtime
+// from the model's actual bone transforms.
+//
+// Axis reference (from rest/idle, confirmed through trial):
+//   UpperArm X rotation = forward(+) / back(-)
+//   UpperArm Z rotation = up(+R,-L) / down(-R,+L)
+//   UpperArm Y rotation = outward(-R,+L) / inward(+R,-L)
+//   LowerArm Y rotation = forearm twist (palm rotation)
+
+const IDLE_BONES = {
+  Body:      [0.0000, 0.0000, -0.0000, 1.0000],
+  Head:      [-0.0309, -0.0029, -0.0013, 0.9995],
+  UpperArmL: [-0.0546, -0.6899, 0.0692, 0.7185],
+  LowerArmL: [0.3100, 0.4993, -0.3649, 0.7221],
+  UpperArmR: [0.0436, 0.8046, 0.0575, 0.5895],
+  LowerArmR: [0.2578, -0.5525, 0.4427, 0.6575],
+  UpperLegL: [0.9855, 0.0176, -0.0843, 0.1461],
+  LowerLegL: [0.2772, 0.0000, 0.0000, 0.9608],
+  UpperLegR: [0.9795, -0.0257, 0.1373, 0.1449],
+  LowerLegR: [0.2772, 0.0000, 0.0000, 0.9608],
+};
+
+// ── Arm Direction Abstraction ────────────────────────────────────
+// Maps human-readable directions to Euler rotations composed on idle.
+// Each direction is [rx, ry, rz] applied via idleCompose().
+// These values encode all the model-specific axis knowledge in one place.
+// If a direction is wrong, fix it here and ALL poses using it update.
+
+const H = Math.PI / 2; // 90 degrees
+
+const UP_ANGLE = Math.PI * 0.85; // ~153° to get arms truly vertical from idle
+
+const ARM_DIRECTIONS = {
+  right: {
+    down:    [0, 0, 0],           // idle position (no extra rotation)
+    forward: [H, 0, 0],          // arm swings forward
+    back:    [-H, 0, 0],         // arm swings back
+    up:      [0, 0, UP_ANGLE],   // arm raises above head (needs >90° from idle)
+    out:     [0, -H, 0],         // arm extends to the side (T-pose)
+    in:      [0, H, 0],          // arm crosses toward body
+  },
+  left: {
+    down:    [0, 0, 0],
+    forward: [H, 0, 0],          // X is same for both arms
+    back:    [-H, 0, 0],
+    up:      [0, 0, -UP_ANGLE],  // Z is mirrored
+    out:     [0, H, 0],          // Y is mirrored
+    in:      [0, -H, 0],
+  },
+};
+
+// Compose a world-space rotation on top of an idle bone quaternion.
+// Pre-multiply (rot * idle) so the rotation is in the PARENT frame.
+// For left arms, mirror the right arm's idle (negate X,Y) to ensure
+// symmetric poses despite the model's asymmetric idle animation.
+function idleCompose(boneName, rx, ry, rz) {
+  let idleQ;
+  if (boneName === 'UpperArmL') {
+    const r = IDLE_BONES.UpperArmR;
+    idleQ = new THREE.Quaternion(-r[0], -r[1], r[2], r[3]);
+  } else if (boneName === 'LowerArmL') {
+    const r = IDLE_BONES.LowerArmR;
+    idleQ = new THREE.Quaternion(-r[0], -r[1], r[2], r[3]);
+  } else {
+    idleQ = new THREE.Quaternion(...IDLE_BONES[boneName]);
+  }
+  const rot = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz));
+  return rot.multiply(idleQ);
+}
+
+// ── Palm Twist Abstraction ───────────────────────────────────────
+// Forearm twist around the arm's length axis, composed on idle LowerArm.
+const PALM_ROTATIONS = {
+  right: {
+    none:  [0, 0, 0],
+    up:    [0, H, 0],
+    down:  [0, -H, 0],
+    out:   [0, Math.PI, 0],
+    in:    [0, 0, 0],
+  },
+  left: {
+    none:  [0, 0, 0],
+    up:    [0, -H, 0],     // Y mirrored
+    down:  [0, H, 0],
+    out:   [0, -Math.PI, 0],
+    in:    [0, 0, 0],
+  },
+};
+
+// Build arm overrides from direction names + optional palm rotation.
+function armPose(rightDir, leftDir, palmRot) {
+  const r = ARM_DIRECTIONS.right[rightDir];
+  const l = ARM_DIRECTIONS.left[leftDir];
+  const overrides = {
+    UpperArmR: idleCompose('UpperArmR', ...r),
+    UpperArmL: idleCompose('UpperArmL', ...l),
+  };
+  // Apply palm rotation to lower arms if specified
+  if (palmRot && palmRot !== 'none') {
+    const pr = PALM_ROTATIONS.right[palmRot];
+    const pl = PALM_ROTATIONS.left[palmRot];
+    if (pr) overrides.LowerArmR = idleCompose('LowerArmR', ...pr);
+    if (pl) overrides.LowerArmL = idleCompose('LowerArmL', ...pl);
+  }
+  return overrides;
+}
+
+// Build a hold-pose AnimationClip. Includes ALL bones so it fully replaces
+// the current animation (body+legs use idle values, arms use custom values).
+function createHoldPoseClip(name, armOverrides) {
+  const bones = { ...IDLE_BONES, ...armOverrides };
+  const tracks = [];
+  for (const [boneName, q] of Object.entries(bones)) {
+    const vals = q instanceof THREE.Quaternion ? [q.x, q.y, q.z, q.w] : q;
+    tracks.push(new THREE.QuaternionKeyframeTrack(
+      `${boneName}.quaternion`, [0, 0.5], [...vals, ...vals]
+    ));
+  }
+  return new THREE.AnimationClip(name, 0.5, tracks);
+}
+
+let activePoseAction = null;
+let activePoseName = null;
+
+// Pose direction definitions — just English words
+const POSE_DEFS = {
+  'tpose':      ['out',     'out'],
+  'arms-up':    ['up',      'up'],
+  'arms-fwd':   ['forward', 'forward'],
+  'arms-back':  ['back',    'back'],
+  'rfwd-lback': ['forward', 'back'],
+  'lfwd-rback': ['back',    'forward'],
+};
+
+const PALM_ROT_NAMES = ['none', 'up', 'down', 'out', 'in'];
+
+// Register all pose×rotation clips with the player mixer.
+function registerPoseClips(mixer) {
+  const poseActions = {};
+  for (const [poseName, [rDir, lDir]] of Object.entries(POSE_DEFS)) {
+    for (const rot of PALM_ROT_NAMES) {
+      const key = `${poseName}__${rot}`;
+      const overrides = armPose(rDir, lDir, rot);
+      const clip = createHoldPoseClip(`Pose_${key}`, overrides);
+      const action = mixer.clipAction(clip);
+      action.setLoop(THREE.LoopRepeat);
+      action.clampWhenFinished = true;
+      poseActions[key] = action;
+    }
+  }
+  return poseActions;
+}
+
+let poseActions = {};
+let currentPalmRot = 'none';
+
+function playPoseAction(key) {
+  const action = poseActions[key];
+  if (!action) return;
+  if (activePoseAction) {
+    activePoseAction.crossFadeTo(action, 0.15, false);
+  }
+  action.reset().setEffectiveWeight(1).play();
+  activePoseAction = action;
+}
+
+export function playDemoPose(poseName) {
+  // Toggle off if same pose
+  if (activePoseName === poseName) {
+    stopDemoPose();
+    return false;
+  }
+  const key = `${poseName}__${currentPalmRot}`;
+  if (!poseActions[key]) return false;
+
+  playPoseAction(key);
+  activePoseName = poseName;
+  return true;
+}
+
+export function setDemoPalmRotation(rotName) {
+  currentPalmRot = rotName || 'none';
+  // If a pose is active, switch to the version with the new rotation
+  if (activePoseName) {
+    const key = `${activePoseName}__${currentPalmRot}`;
+    playPoseAction(key);
+  }
+}
+
+export function stopDemoPose() {
+  if (activePoseAction) {
+    activePoseAction.fadeOut(0.15);
+    activePoseAction = null;
+  }
+  activePoseName = null;
+  currentPalmRot = 'none';
+}
+
+export function getActivePoseName() { return activePoseName; }
+
+// Legacy aliases for game.js compatibility
+export function applyDemoPose(boneMap) { /* no-op, replaced by playDemoPose */ }
+export function clearDemoPose() { stopDemoPose(); }
+
 export function render3d() {
   if (!renderer) return;
   resizeRenderer();
 
-  const delta = clock.getDelta();
+  const delta = clock.getDelta() * globalTimeScale;
 
-  // Update animation mixers (skip when KO animation is fully done — freeze on last frame)
+  // Update animation mixers normally
   if (mixers.player && koPhase.player !== 'done') mixers.player.update(delta);
-  if (mixers.cpu && koPhase.cpu !== 'done') mixers.cpu.update(delta);
+  if (mixers.cpu && koPhase.cpu !== 'done' && fighterModels.cpu?.visible !== false) mixers.cpu.update(delta);
+
+
 
   // Screen shake
   if (shakeDecay > 0) {
@@ -789,18 +1284,20 @@ export function render3d() {
     shakeOffset.y = 0;
   }
 
-  // Smoothly lerp zoom and horizontal position toward dynamic targets
-  cameraZ += (dynamicZoomTarget - cameraZ) * CAMERA_LERP_SPEED;
-  cameraZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZ));
+  // Smoothly lerp zoom and orbit angle toward targets
+  cameraRadius += (dynamicZoomTarget - cameraRadius) * CAMERA_LERP_SPEED;
+  cameraRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraRadius));
+  cameraOrbitAngle += (cameraOrbitTarget - cameraOrbitAngle) * 0.12;
 
   // Drop camera height when zoomed in for a more dramatic angle
-  const zoomNorm = (cameraZ - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM); // 0 = closest, 1 = farthest
+  const zoomNorm = (cameraRadius - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM); // 0 = closest, 1 = farthest
   const cameraY = 3.0 + zoomNorm * 2.0; // 3.0 close-up → 5.0 pulled back
   const lookY = 1.2 + zoomNorm * 0.5;   // look target follows slightly
 
-  camera.position.x = dynamicCameraX + shakeOffset.x;
+  // Orbital position: camera orbits around the look target
+  camera.position.x = dynamicCameraX + Math.sin(cameraOrbitAngle) * cameraRadius + shakeOffset.x;
   camera.position.y = cameraY + shakeOffset.y;
-  camera.position.z = cameraZ;
+  camera.position.z = Math.cos(cameraOrbitAngle) * cameraRadius;
   cameraLookAt.x = dynamicCameraX;
   cameraLookAt.y = lookY;
   camera.lookAt(cameraLookAt);

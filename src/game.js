@@ -1,4 +1,4 @@
-import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera } from './renderer3d.js';
+import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible, setGlobalTimeScale, playDemoPose, stopDemoPose, setDemoPalmRotation } from './renderer3d.js';
 
 const TICK_RATE = 120;
 const DT = 1 / TICK_RATE;
@@ -7,12 +7,16 @@ const FRAMES = {
   blockRecovery: 4,
   punchStartup: 7,
   punchActive: 3,
-  punchRecovery: 10,
+  punchRecovery: 13,
   kickStartup: 10,
   kickActive: 4,
-  kickRecovery: 14,
+  kickRecovery: 17,
+  uppercutStartup: 5,
+  uppercutActive: 4,
+  uppercutRecovery: 20,
   hitStopPunch: 8,
   hitStopKick: 12,
+  hitStopUppercut: 16,
   hitStopBlocked: 6,
 };
 
@@ -32,9 +36,12 @@ const CONFIG = {
     axisResponsivenessX: 1,
     axisResponsivenessY: 0.72,
   },
-  punch: { damage: 8, range: 340, proximityRange: 480, yRange: 90, hitStun: 20, blockStun: 12, pushOnHit: 55, pushOnBlock: 30, lungeForce: 2800 },
-  kick: { damage: 12, range: 360, proximityRange: 510, yRange: 100, hitStun: 26, blockStun: 16, pushOnHit: 80, pushOnBlock: 45, lungeForce: 2200 },
-  attackCooldown: 18,
+  punch: { damage: 8, range: 340, proximityRange: 480, yRange: 90, hitStun: 20, blockStun: 9, pushOnHit: 55, pushOnBlock: 55, lungeForce: 1800 },
+  kick: { damage: 12, range: 360, proximityRange: 510, yRange: 100, hitStun: 26, blockStun: 12, pushOnHit: 80, pushOnBlock: 70, lungeForce: 1600 },
+  uppercut: { damage: 15, range: 350, proximityRange: 480, yRange: 100, hitStun: 36, blockStun: 14, pushOnHit: 120, pushOnBlock: 80, lungeForce: 2400 },
+  attackCooldown: 22,
+  punchComboWindow: 60,          // frames between punches to keep combo chain alive (~500ms)
+  punchExhaustionCooldown: 360,  // frames after uppercut before punching again (~3 seconds)
   chipDamage: 1,
   comboDropFrames: 45, // frames after last hit before combo resets (~375ms)
 };
@@ -43,6 +50,7 @@ const State = {
   Idle: 'Idle', Move: 'Move', Block: 'Block', BlockRecovery: 'Block_Recovery',
   PunchStartup: 'Punch_Startup', PunchActive: 'Punch_Active', PunchRecovery: 'Punch_Recovery',
   KickStartup: 'Kick_Startup', KickActive: 'Kick_Active', KickRecovery: 'Kick_Recovery',
+  UppercutStartup: 'Uppercut_Startup', UppercutActive: 'Uppercut_Active', UppercutRecovery: 'Uppercut_Recovery',
   HitStun: 'Hit_Stun', BlockStun: 'Block_Stun', KO: 'KO',
 };
 
@@ -60,9 +68,13 @@ class Fighter {
     this.comboCount = 0;
     this.comboTimer = 0; // frames since last hit — resets combo when expired
     this.hitFlash = 0;   // frames remaining for hit flash effect
+    // Punch combo chain: tracks consecutive punch hits (0→1→2 then uppercut)
+    this.punchChain = 0;
+    this.punchChainTimer = 0; // frames remaining before chain resets
+    this.punchExhaustion = 0; // frames remaining where punching is locked out (post-uppercut)
   }
   actionable() { return [State.Idle, State.Move, State.Block].includes(this.state); }
-  inAttack() { return [State.PunchStartup, State.PunchActive, State.PunchRecovery, State.KickStartup, State.KickActive, State.KickRecovery].includes(this.state); }
+  inAttack() { return [State.PunchStartup, State.PunchActive, State.PunchRecovery, State.KickStartup, State.KickActive, State.KickRecovery, State.UppercutStartup, State.UppercutActive, State.UppercutRecovery].includes(this.state); }
 }
 
 const world = {
@@ -81,6 +93,7 @@ const ui = {
   p1Rounds: document.getElementById('p1-rounds'), p2Rounds: document.getElementById('p2-rounds'),
   timer: document.getElementById('timer'), roundText: document.getElementById('round-text'), announcement: document.getElementById('announcement'),
   comboP1: document.getElementById('combo-p1'), comboP2: document.getElementById('combo-p2'),
+  punchBtn: document.getElementById('punch-btn'), kickBtn: document.getElementById('kick-btn'),
 };
 
 const keyMap = {
@@ -267,7 +280,10 @@ window.addEventListener('message', (e) => {
 
 function enqueueAction(fighter, action) {
   if (fighter.buffer.length > 2) return;
-  if (fighter.attackCooldown > 0) return;
+  // Post-uppercut exhaustion: can't punch, but can still kick
+  if (action === 'punch' && fighter.punchExhaustion > 0) return;
+  // Allow buffering during attacks (for gatling cancels), but respect cooldown otherwise
+  if (fighter.attackCooldown > 0 && !fighter.inAttack()) return;
   fighter.buffer.push({ action, expires: world.frame + 10 });
 }
 
@@ -280,27 +296,46 @@ function consumeBufferedAction(fighter) {
   // Normal consumption when actionable (idle/move/block)
   if (fighter.actionable()) {
     const next = fighter.buffer.shift();
-    if (next.action === 'punch') setState(fighter, State.PunchStartup);
-    if (next.action === 'kick') setState(fighter, State.KickStartup);
+    if (next.action === 'punch') {
+      // 3rd punch in chain auto-upgrades to uppercut
+      if (fighter.punchChain >= 2) {
+        setState(fighter, State.UppercutStartup);
+      } else {
+        setState(fighter, State.PunchStartup);
+      }
+    }
+    if (next.action === 'kick') {
+      fighter.punchChain = 0; fighter.punchChainTimer = 0; // kick breaks punch chain
+      setState(fighter, State.KickStartup);
+    }
     fighter.attackCooldown = CONFIG.attackCooldown;
     return;
   }
 
-  // Attack cancel: on hit confirm, allow canceling active/early-recovery into the OTHER attack
-  // This enables natural punch→kick and kick→punch gatling combos
+  // Attack cancel: on hit confirm, allow canceling into the next attack in the chain
+  // Punch→Punch (chain), Punch→Kick, Kick→Punch gatling combos
   if (fighter.hitConfirmedThisState) {
-    const canCancel =
-      (fighter.state === State.PunchActive || fighter.state === State.PunchRecovery) ||
-      (fighter.state === State.KickActive || fighter.state === State.KickRecovery);
+    const isPunchState = fighter.state === State.PunchActive || fighter.state === State.PunchRecovery;
+    const isKickState = fighter.state === State.KickActive || fighter.state === State.KickRecovery;
+    const canCancel = isPunchState || isKickState;
     if (canCancel) {
       const next = fighter.buffer[0];
-      // Only cancel into a DIFFERENT attack type (no same-move spam cancel)
-      const isPunchState = fighter.state === State.PunchActive || fighter.state === State.PunchRecovery;
+      // Allow punch→punch chain (including final uppercut), punch→kick, kick→punch
+      const isPunchChain = isPunchState && next.action === 'punch';
       const wantsDifferent = isPunchState ? next.action === 'kick' : next.action === 'punch';
-      if (wantsDifferent) {
+      if (isPunchChain || wantsDifferent) {
         fighter.buffer.shift();
-        if (next.action === 'punch') setState(fighter, State.PunchStartup);
-        if (next.action === 'kick') setState(fighter, State.KickStartup);
+        if (next.action === 'punch') {
+          if (fighter.punchChain >= 2) {
+            setState(fighter, State.UppercutStartup);
+          } else {
+            setState(fighter, State.PunchStartup);
+          }
+        }
+        if (next.action === 'kick') {
+          fighter.punchChain = 0; fighter.punchChainTimer = 0;
+          setState(fighter, State.KickStartup);
+        }
         fighter.attackCooldown = CONFIG.attackCooldown;
       }
     }
@@ -308,8 +343,14 @@ function consumeBufferedAction(fighter) {
 }
 
 function setState(f, next) {
+  // Preserve hit confirm across Active→Recovery so gatling cancel window extends into recovery
+  const keepConfirm =
+    (f.state === State.PunchActive && next === State.PunchRecovery) ||
+    (f.state === State.KickActive && next === State.KickRecovery) ||
+    (f.state === State.UppercutActive && next === State.UppercutRecovery);
+  const hadConfirm = f.hitConfirmedThisState;
   f.state = next; f.stateFrame = 0;
-  f.hitConfirmedThisState = false;
+  f.hitConfirmedThisState = keepConfirm ? hadConfirm : false;
 }
 
 // SF2-style proximity guard: returns true if attacker is a threat that should trigger block.
@@ -318,9 +359,10 @@ function setState(f, next) {
 function isProximityThreat(attacker, defender) {
   const isPunch = attacker.state === State.PunchStartup || attacker.state === State.PunchActive;
   const isKick = attacker.state === State.KickStartup || attacker.state === State.KickActive;
-  if (!isPunch && !isKick) return false;
+  const isUppercut = attacker.state === State.UppercutStartup || attacker.state === State.UppercutActive;
+  if (!isPunch && !isKick && !isUppercut) return false;
 
-  const move = isPunch ? CONFIG.punch : CONFIG.kick;
+  const move = isUppercut ? CONFIG.uppercut : isPunch ? CONFIG.punch : CONFIG.kick;
   // Use projected position: account for lunge momentum closing distance during startup
   const projectedAx = attacker.x + (attacker.impulseX + attacker.vx) * DT * 3;
   const dx = (defender.x - projectedAx) * attacker.facing;
@@ -490,6 +532,16 @@ function processStates(f) {
     case State.KickRecovery:
       if (f.stateFrame >= FRAMES.kickRecovery) setState(f, State.Idle);
       break;
+    case State.UppercutStartup:
+      if (f.stateFrame === 1) f.impulseX += f.facing * CONFIG.uppercut.lungeForce;
+      if (f.stateFrame >= FRAMES.uppercutStartup) setState(f, State.UppercutActive);
+      break;
+    case State.UppercutActive:
+      if (f.stateFrame >= FRAMES.uppercutActive) setState(f, State.UppercutRecovery);
+      break;
+    case State.UppercutRecovery:
+      if (f.stateFrame >= FRAMES.uppercutRecovery) setState(f, State.Idle);
+      break;
     case State.HitStun:
     case State.BlockStun:
       if (f.stateFrame >= f.stunFrames) setState(f, State.Idle);
@@ -498,7 +550,7 @@ function processStates(f) {
   consumeBufferedAction(f);
 }
 
-function tryHit(attacker, defender, move, isKick) {
+function tryHit(attacker, defender, move, moveType) {
   if (attacker.hitConfirmedThisState) return;
   const dx = (defender.x - attacker.x) * attacker.facing;
   const dy = Math.abs(defender.y - attacker.y);
@@ -511,7 +563,9 @@ function tryHit(attacker, defender, move, isKick) {
     attacker.impulseX -= attacker.facing * move.pushOnBlock * 28;
     defender.impulseX += attacker.facing * move.pushOnBlock * 18;
     world.hitStopFrames = FRAMES.hitStopBlocked;
-    triggerScreenShake(4);
+    triggerScreenShake(moveType === 'uppercut' ? 10 : 4);
+    // Blocking breaks the attacker's punch chain
+    attacker.punchChain = 0; attacker.punchChainTimer = 0;
     // Blocking resets the attacker's combo
     defender.comboCount = 0;
     defender.comboTimer = 0;
@@ -529,9 +583,26 @@ function tryHit(attacker, defender, move, isKick) {
     defender.stunFrames = Math.round(move.hitStun * stunScale);
     defender.impulseX += attacker.facing * move.pushOnHit * 22 * kbScale;
     attacker.impulseX -= attacker.facing * move.pushOnHit * 9;
-    world.hitStopFrames = isKick ? FRAMES.hitStopKick : FRAMES.hitStopPunch;
-    triggerScreenShake(isKick ? 18 : 12);
-    defender.hitFlash = 6;
+
+    const hitStopMap = { punch: FRAMES.hitStopPunch, kick: FRAMES.hitStopKick, uppercut: FRAMES.hitStopUppercut };
+    const shakeMap = { punch: 12, kick: 18, uppercut: 24 };
+    world.hitStopFrames = hitStopMap[moveType];
+    triggerScreenShake(shakeMap[moveType]);
+    defender.hitFlash = moveType === 'uppercut' ? 8 : 6;
+
+    // Punch chain tracking: consecutive punch hits build toward uppercut
+    if (moveType === 'punch') {
+      attacker.punchChain++;
+      attacker.punchChainTimer = CONFIG.punchComboWindow;
+    } else if (moveType === 'uppercut') {
+      // Uppercut finisher — exhaustion locks out punching, kicks still allowed
+      attacker.punchChain = 0;
+      attacker.punchChainTimer = 0;
+      attacker.punchExhaustion = CONFIG.punchExhaustionCooldown;
+    } else {
+      // Kick resets punch chain
+      attacker.punchChain = 0; attacker.punchChainTimer = 0;
+    }
   }
 
   attacker.hitConfirmedThisState = true;
@@ -548,10 +619,12 @@ function resolveCombat() {
   p.facing = c.x > p.x ? 1 : -1;
   c.facing = p.x > c.x ? 1 : -1;
 
-  if (p.state === State.PunchActive) tryHit(p, c, CONFIG.punch, false);
-  if (p.state === State.KickActive) tryHit(p, c, CONFIG.kick, true);
-  if (c.state === State.PunchActive) tryHit(c, p, CONFIG.punch, false);
-  if (c.state === State.KickActive) tryHit(c, p, CONFIG.kick, true);
+  if (p.state === State.PunchActive) tryHit(p, c, CONFIG.punch, 'punch');
+  if (p.state === State.KickActive) tryHit(p, c, CONFIG.kick, 'kick');
+  if (p.state === State.UppercutActive) tryHit(p, c, CONFIG.uppercut, 'uppercut');
+  if (c.state === State.PunchActive) tryHit(c, p, CONFIG.punch, 'punch');
+  if (c.state === State.KickActive) tryHit(c, p, CONFIG.kick, 'kick');
+  if (c.state === State.UppercutActive) tryHit(c, p, CONFIG.uppercut, 'uppercut');
 
   if (Math.abs(p.x - c.x) < CONFIG.physics.pushSeparation) {
     const overlap = CONFIG.physics.pushSeparation - Math.abs(p.x - c.x);
@@ -643,8 +716,10 @@ function resetRoundIfNeeded() {
 
   const p = world.player, c = world.cpu;
   if (p.roundWins >= CONFIG.roundWinsNeeded || c.roundWins >= CONFIG.roundWinsNeeded) {
-    ui.announcement.textContent = `${p.roundWins > c.roundWins ? 'Player' : 'CPU'} Wins Match!  Tap to play again`;
+    ui.announcement.textContent = `${p.roundWins > c.roundWins ? 'Player' : 'CPU'} Wins Match!`;
     world.paused = true;
+    // Return to title screen after a delay
+    setTimeout(showTitleScreen, 2500);
     return;
   }
 
@@ -656,7 +731,7 @@ function resetRoundIfNeeded() {
     f.y = 560;
     f.buffer.length = 0;
     f.attackCooldown = 0;
-    f.comboCount = 0; f.comboTimer = 0; f.hitFlash = 0;
+    f.comboCount = 0; f.comboTimer = 0; f.hitFlash = 0; f.punchChain = 0; f.punchChainTimer = 0; f.punchExhaustion = 0;
     setState(f, State.Idle);
   });
   ui.announcement.textContent = '';
@@ -680,7 +755,7 @@ function resetMatch() {
     f.impulseX = 0; f.impulseY = 0;
     f.buffer.length = 0;
     f.attackCooldown = 0;
-    f.comboCount = 0; f.comboTimer = 0; f.hitFlash = 0;
+    f.comboCount = 0; f.comboTimer = 0; f.hitFlash = 0; f.punchChain = 0; f.punchChainTimer = 0; f.punchExhaustion = 0;
     setState(f, State.Idle);
   });
   ui.announcement.textContent = '';
@@ -698,6 +773,12 @@ function updateHud() {
   // (comboCount is on the defender, so cpu.comboCount = hits landed BY player)
   updateComboDisplay(ui.comboP1, world.cpu.comboCount, world.cpu.comboTimer);
   updateComboDisplay(ui.comboP2, world.player.comboCount, world.player.comboTimer);
+
+  // Gray out buttons when attacks are temporarily locked out
+  const p = world.player;
+  const busy = p.inAttack() || p.state === State.HitStun || p.state === State.BlockStun;
+  ui.punchBtn.classList.toggle('disabled', busy || p.punchExhaustion > 0);
+  ui.kickBtn.classList.toggle('disabled', busy);
 }
 
 function updateComboDisplay(el, comboCount, comboTimer) {
@@ -727,14 +808,28 @@ function drawRoundDots(node, wins, type) {
 
 function render() {
   if (!rendererReady) return;
-  updateDynamicCamera(world.player, world.cpu);
+  if (gameMode === 'demo') {
+    // In demo mode, spread fighters apart to get a medium zoom that shows the full robot
+    const solo = { ...world.player };
+    const fakeCpu = { ...solo, x: solo.x + 400 }; // offset triggers medium zoom
+    updateDynamicCamera(solo, fakeCpu);
+  } else {
+    updateDynamicCamera(world.player, world.cpu);
+  }
   updateFighter('player', world.player);
-  updateFighter('cpu', world.cpu);
+  if (gameMode !== 'demo') updateFighter('cpu', world.cpu);
   render3d();
 }
 
 function step() {
+  if (gameMode === 'demo') {
+    stepDemo();
+    integrateFighterPhysics(world.player);
+    processStates(world.player);
+    return;
+  }
   if (world.paused) {
+    if (gameMode === 'title') return; // title screen handles its own input
     // Any attack/block input restarts the match
     if (world.input.punch || world.input.kick) {
       world.input.punch = false; world.input.kick = false;
@@ -757,11 +852,20 @@ function step() {
     return;
   }
 
-  // Decay combo timers and hit flash
+  // Decay combo timers, punch chain timers, and hit flash
   [world.player, world.cpu].forEach((f) => {
     if (f.comboTimer > 0) {
       f.comboTimer--;
       if (f.comboTimer <= 0) f.comboCount = 0;
+    }
+    if (f.punchChainTimer > 0) {
+      f.punchChainTimer--;
+      if (f.punchChainTimer <= 0) f.punchChain = 0;
+    }
+    if (f.punchExhaustion > 0) f.punchExhaustion--;
+    // Getting hit resets your punch chain
+    if (f.state === State.HitStun && f.stateFrame === 1) {
+      f.punchChain = 0; f.punchChainTimer = 0;
     }
     if (f.hitFlash > 0) f.hitFlash--;
   });
@@ -780,7 +884,9 @@ function step() {
 let lastTime = 0, accumulator = 0;
 function gameLoop(ts) {
   if (!lastTime) lastTime = ts;
-  accumulator += Math.min(0.06, (ts - lastTime) / 1000);
+  const rawDelta = Math.min(0.06, (ts - lastTime) / 1000);
+  const timeScale = gameMode === 'demo' ? DEMO_SPEEDS[demoSpeedIndex].scale : 1.0;
+  accumulator += rawDelta * timeScale;
   lastTime = ts;
   while (accumulator >= DT) {
     step();
@@ -789,5 +895,264 @@ function gameLoop(ts) {
   render();
   requestAnimationFrame(gameLoop);
 }
-updateHud();
+// ─── Title Screen & Demo Mode ───────────────────────────────────
+
+let gameMode = 'title'; // 'title' | 'play' | 'demo'
+
+const titleScreen = document.getElementById('title-screen');
+const playBtn = document.getElementById('play-btn');
+const demoBtn = document.getElementById('demo-btn');
+
+// Hide HUD and controls on title screen
+function setGameUIVisible(visible) {
+  const display = visible ? '' : 'none';
+  document.querySelector('.hud').style.display = visible ? 'grid' : 'none';
+  document.querySelector('.action-buttons-fixed').style.display = visible ? 'flex' : 'none';
+  document.querySelector('.stick-zone').style.display = display;
+  ui.comboP1.style.display = display;
+  ui.comboP2.style.display = display;
+}
+
+function showTitleScreen() {
+  gameMode = 'title';
+  world.paused = true;
+  titleScreen.classList.remove('hidden');
+  demoPanel.style.display = 'none';
+  setGlobalTimeScale(1.0);
+  demoSpeedIndex = 0;
+  currentDemoPose = null;
+  stopDemoPose();
+  setGameUIVisible(false);
+  // Show both fighters idling at default positions for the background
+  setFighterVisible('player', true);
+  setFighterVisible('cpu', true);
+  resetMatch();
+}
+
+function startPlay() {
+  gameMode = 'play';
+  titleScreen.classList.add('hidden');
+  demoPanel.style.display = 'none';
+  setGameUIVisible(true);
+  setFighterVisible('player', true);
+  setFighterVisible('cpu', true);
+  resetMatch();
+}
+
+// ─── Demo Mode ──────────────────────────────────────────────────
+
+const DEMO_MOVE_DEFS = {
+  'idle':      { caption: 'Idle',              state: State.Idle },
+  'walk-fwd':  { caption: 'Walk Forward',      state: State.Move,            axisX: 1 },
+  'walk-back': { caption: 'Walk Backward',     state: State.Move,            axisX: -1 },
+  'punch-r':   { caption: 'Punch (Right)',     state: State.PunchStartup,    chain: 0 },
+  'punch-l':   { caption: 'Punch (Left Jab)',  state: State.PunchStartup,    chain: 1 },
+  'uppercut':  { caption: 'Uppercut',          state: State.UppercutStartup, chain: 2 },
+  'kick':      { caption: 'Kick',              state: State.KickStartup },
+  'block':     { caption: 'Block',             state: State.Block },
+  'hitstun':   { caption: 'Hit Stun',          state: State.HitStun,         stun: 30 },
+};
+
+const DEMO_SPEEDS = [
+  { label: '1x',    scale: 1.0 },
+  { label: '0.5x',  scale: 0.5 },
+  { label: '0.25x', scale: 0.25 },
+];
+
+let demoCurrentMove = null;      // key into DEMO_MOVE_DEFS
+let demoSpeedIndex = 0;
+
+const demoPanel = document.getElementById('demo-panel');
+const demoCaptionEl = document.getElementById('demo-caption');
+const demoSpeedBtn = document.getElementById('demo-speed-btn');
+const demoMoveBtns = demoPanel.querySelectorAll('.demo-move-btn');
+
+function resetDemoFighter() {
+  const p = world.player;
+  p.axisX = 0; p.axisY = 0;
+  p.blockHeld = false;
+  p.punchChain = 0; p.punchChainTimer = 0; p.punchExhaustion = 0;
+  p.attackCooldown = 0;
+  p.hitFlash = 0;
+  p.x = 640; p.y = 560;
+  p.vx = 0; p.vy = 0;
+  p.impulseX = 0; p.impulseY = 0;
+  p.facing = 1;
+  setState(p, State.Idle);
+}
+
+function triggerDemoMove(moveKey) {
+  const def = DEMO_MOVE_DEFS[moveKey];
+  if (!def) return;
+
+  // Clear any active pose
+  currentDemoPose = null;
+  stopDemoPose();
+  demoPoseBtns.forEach(btn => btn.classList.remove('active'));
+
+  // Reset fighter to clean state before starting new move
+  resetDemoFighter();
+  demoCurrentMove = moveKey;
+  demoCaptionEl.textContent = def.caption;
+
+  // Highlight active button
+  demoMoveBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.move === moveKey));
+
+  const p = world.player;
+  if (def.state === State.Move) {
+    setState(p, State.Move);
+    p.axisX = def.axisX || 0;
+  } else if (def.state === State.Block) {
+    p.blockHeld = true;
+    setState(p, State.Block);
+  } else if (def.state === State.HitStun) {
+    setState(p, State.HitStun);
+    p.stunFrames = def.stun || 30;
+    p.hitFlash = 6;
+  } else if (def.state === State.PunchStartup) {
+    p.punchChain = def.chain || 0;
+    p.punchChainTimer = 999;
+    setState(p, State.PunchStartup);
+  } else if (def.state === State.UppercutStartup) {
+    p.punchChain = 2;
+    p.punchChainTimer = 999;
+    setState(p, State.UppercutStartup);
+  } else if (def.state === State.KickStartup) {
+    setState(p, State.KickStartup);
+  } else {
+    setState(p, State.Idle);
+  }
+}
+
+function startDemo() {
+  gameMode = 'demo';
+  titleScreen.classList.add('hidden');
+  setGameUIVisible(false);
+  demoPanel.style.display = '';
+  setFighterVisible('player', true);
+  setFighterVisible('cpu', false);
+
+  const p = world.player;
+  p.health = CONFIG.healthMax;
+  p.roundWins = 0;
+  resetDemoFighter();
+
+  const c = world.cpu;
+  c.x = -9999; c.y = 560; // move far off-screen
+  setState(c, State.Idle);
+  // Update CPU once to move it off-screen, then it won't be updated again
+  updateFighter('cpu', c);
+
+  world.paused = false;
+  demoCurrentMove = 'idle';
+  setGlobalTimeScale(DEMO_SPEEDS[demoSpeedIndex].scale);
+  demoCaptionEl.textContent = 'Idle';
+  demoMoveBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.move === 'idle'));
+}
+
+function stepDemo() {
+  const p = world.player;
+  const def = demoCurrentMove ? DEMO_MOVE_DEFS[demoCurrentMove] : null;
+
+  // Keep continuous moves active
+  if (def && def.state === State.Move) {
+    p.axisX = def.axisX || 0;
+    if (p.state === State.Idle) setState(p, State.Move);
+  }
+  if (def && def.state === State.Block) {
+    p.blockHeld = true;
+    if (p.state !== State.Block && p.state !== State.BlockRecovery) {
+      setState(p, State.Block);
+    }
+  }
+
+  // When a one-shot move finishes, return to idle and clear highlight
+  if (def && def.state !== State.Idle && def.state !== State.Move && def.state !== State.Block) {
+    if (p.state === State.Idle) {
+      demoCurrentMove = 'idle';
+      demoCaptionEl.textContent = 'Idle';
+      demoMoveBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.move === 'idle'));
+    }
+  }
+}
+
+// Wire up demo move buttons
+demoMoveBtns.forEach(btn => {
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    triggerDemoMove(btn.dataset.move);
+  });
+});
+
+// Wire up speed toggle
+demoSpeedBtn.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  demoSpeedIndex = (demoSpeedIndex + 1) % DEMO_SPEEDS.length;
+  demoSpeedBtn.textContent = DEMO_SPEEDS[demoSpeedIndex].label;
+  setGlobalTimeScale(DEMO_SPEEDS[demoSpeedIndex].scale);
+});
+
+// ─── Demo Poses ─────────────────────────────────────────────────
+// Uses the AnimationClip-based pose system from renderer3d.js.
+// Poses are played through the mixer (proven approach), not direct bone manipulation.
+
+let currentDemoPose = null;
+
+const demoPoseBtns = demoPanel.querySelectorAll('.demo-pose-btn');
+const demoRotBtns = demoPanel.querySelectorAll('.demo-rot-btn');
+
+function selectDemoPose(poseKey) {
+  // Clear any active move
+  demoCurrentMove = null;
+  demoCaptionEl.textContent = '';
+  demoMoveBtns.forEach(btn => btn.classList.remove('active'));
+  resetDemoFighter();
+
+  const wasActive = playDemoPose(poseKey); // toggles off if same
+  currentDemoPose = wasActive ? poseKey : null;
+
+  demoPoseBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.pose === currentDemoPose));
+  const label = currentDemoPose
+    ? demoPanel.querySelector(`[data-pose="${currentDemoPose}"]`)?.textContent
+    : '';
+  demoCaptionEl.textContent = label || '';
+}
+
+// Wire up pose buttons
+demoPoseBtns.forEach(btn => {
+  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); selectDemoPose(btn.dataset.pose); });
+});
+// Palm rotation buttons
+let currentDemoRot = 'none';
+demoRotBtns.forEach(btn => {
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    currentDemoRot = btn.dataset.rot;
+    demoRotBtns.forEach(b => b.classList.toggle('active', b.dataset.rot === currentDemoRot));
+    setDemoPalmRotation(currentDemoRot === 'none' ? 'none' :
+      currentDemoRot === 'palms-up' ? 'up' :
+      currentDemoRot === 'palms-down' ? 'down' :
+      currentDemoRot === 'palms-out' ? 'out' : 'in');
+  });
+});
+
+// ─── Button Handlers ────────────────────────────────────────────
+
+playBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); startPlay(); });
+demoBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); startDemo(); });
+document.getElementById('demo-quit-btn').addEventListener('pointerdown', (e) => { e.preventDefault(); showTitleScreen(); });
+// Also handle keyboard on title screen
+window.addEventListener('keydown', (e) => {
+  if (gameMode === 'title') {
+    if (e.key === 'Enter' || e.key === ' ') startPlay();
+    if (e.key === 'd' || e.key === 'D') startDemo();
+  }
+  if (gameMode === 'demo') {
+    if (e.key === 'Escape') showTitleScreen();
+  }
+});
+
+// Start on title screen
+world.paused = true;
+setGameUIVisible(false);
 requestAnimationFrame(gameLoop);

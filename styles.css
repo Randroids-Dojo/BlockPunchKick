@@ -91,6 +91,7 @@ html, body {
   outline: none;
 }
 .btn:active { opacity: 0.8; transform: scale(0.95); }
+.btn.disabled { opacity: 0.35; filter: grayscale(0.8); pointer-events: none; }
 .btn.block { background: #4f67c9; }
 .btn.punch { background: #3987c9; }
 .btn.kick { background: #bf4a4a; }
@@ -109,9 +110,143 @@ html, body {
 .combo-counter.active { opacity: 1; transform: scale(1.15); }
 .combo-counter.fading { opacity: 0.4; transform: scale(0.9); }
 
+/* Title screen overlay */
+.title-screen {
+  position: fixed; inset: 0;
+  z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 40%, rgba(15,25,60,0.92), rgba(5,5,16,0.97));
+  backdrop-filter: blur(6px);
+  transition: opacity 0.4s ease-out;
+}
+.title-screen.hidden {
+  opacity: 0; pointer-events: none;
+}
+.title-content {
+  text-align: center;
+  animation: titleFadeIn 0.6s ease-out;
+}
+@keyframes titleFadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.title-name {
+  font-size: 2.8rem; font-weight: 900;
+  margin: 0 0 4px;
+  background: linear-gradient(135deg, #5af, #fff, #f88);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
+  letter-spacing: -0.5px;
+}
+.title-sub {
+  font-size: 1rem; font-weight: 400;
+  color: rgba(200,210,240,0.7);
+  margin: 0 0 32px;
+}
+.title-buttons {
+  display: flex; gap: 16px; justify-content: center;
+}
+.title-btn {
+  font-size: 1.2rem; font-weight: 700;
+  border: none; border-radius: 12px;
+  padding: 14px 40px; color: white;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  transition: transform 0.12s, box-shadow 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.title-btn:active { transform: scale(0.95); }
+.title-btn.play {
+  background: linear-gradient(135deg, #1e90ff, #3366cc);
+}
+.title-btn.demo {
+  background: linear-gradient(135deg, #666, #444);
+}
+
+/* Demo panel */
+.demo-panel {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  z-index: 150;
+  background: rgba(8,12,28,0.88);
+  border-top: 1px solid rgba(80,110,200,0.3);
+  backdrop-filter: blur(8px);
+  max-height: 25vh;
+  display: flex; flex-direction: column;
+}
+.demo-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 12px;
+  flex-shrink: 0;
+}
+.demo-scroll {
+  overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 12px 10px;
+  flex: 1; min-height: 0;
+}
+.demo-caption-inline {
+  font-size: 1.1rem; font-weight: 700; color: #ffe16b;
+  text-shadow: 0 0 8px rgba(255,200,0,0.4);
+  flex: 1; text-align: center;
+  min-height: 1.4em;
+}
+.demo-quit-btn, .demo-speed-btn {
+  font-size: 0.85rem; font-weight: 700;
+  border: 1px solid rgba(100,130,200,0.4); border-radius: 8px;
+  padding: 6px 14px; color: #ccd;
+  background: rgba(20,28,55,0.8);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+}
+.demo-quit-btn:active, .demo-speed-btn:active { opacity: 0.7; }
+.demo-section-label {
+  font-size: 0.65rem; font-weight: 600; text-transform: uppercase;
+  color: rgba(150,170,220,0.5); letter-spacing: 1px;
+  margin: 4px 0 2px; text-align: center;
+}
+.demo-moves {
+  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+}
+.demo-move-btn {
+  font-size: 0.85rem; font-weight: 600;
+  border: 1px solid rgba(100,130,200,0.3); border-radius: 8px;
+  padding: 8px 14px; color: #dde;
+  background: rgba(25,35,65,0.8);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s, border-color 0.1s;
+}
+.demo-move-btn:active, .demo-pose-btn:active, .demo-rot-btn:active { transform: scale(0.95); }
+.demo-pose-btn, .demo-rot-btn {
+  font-size: 0.85rem; font-weight: 600;
+  border: 1px solid rgba(100,130,200,0.3); border-radius: 8px;
+  padding: 8px 14px; color: #dde;
+  background: rgba(25,35,65,0.8);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s, border-color 0.1s;
+}
+.demo-pose-btn { border-color: rgba(120,180,100,0.4); }
+.demo-rot-btn { border-color: rgba(180,140,80,0.4); }
+.demo-move-btn.active, .demo-pose-btn.active, .demo-rot-btn.active {
+  background: rgba(50,80,160,0.8);
+  border-color: rgba(100,160,255,0.6);
+  color: #fff;
+}
+.demo-move-btn.move-punch { border-color: rgba(57,135,201,0.4); }
+.demo-move-btn.move-kick  { border-color: rgba(191,74,74,0.4); }
+.demo-move-btn.move-block { border-color: rgba(79,103,201,0.4); }
+.demo-move-btn.move-stun  { border-color: rgba(200,150,50,0.4); }
+
 .help { display: none; }
 
 /* Embedded in iframe — same layout, just tighten padding */
 .embedded body { background: transparent; }
 .embedded .game-shell { padding: 2px; }
 .embedded .btn { font-size: 1rem; padding: 14px 18px; }
+.embedded .title-name { font-size: 2rem; }
+.embedded .title-btn { font-size: 1rem; padding: 12px 28px; }
+.embedded .demo-move-btn { font-size: 0.75rem; padding: 6px 10px; }
+.embedded .demo-caption-inline { font-size: 0.9rem; }
