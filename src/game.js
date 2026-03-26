@@ -1107,37 +1107,32 @@ function qaxis(ax, ay, az, angle) {
   return [ax * s, ay * s, az * s, c];
 }
 
-// Idle arm quaternions (reference for composition)
-const IDLE_R = [0.0436, 0.8046, 0.0575, 0.5895];
-const IDLE_L = [-0.0546, -0.6899, 0.0692, 0.7185];
 const ID = [0, 0, 0, 1]; // identity
+const H = Math.SQRT1_2;  // 0.7071...
 
-// Compute arm poses by composing rotations on idle quaternion.
-// X rotation = shoulder flexion (forward/up from idle)
-// For left arm, X rotation direction is mirrored.
-const R_FWD  = qmul(IDLE_R, qaxis(1,0,0, Math.PI/2));   // right arm forward+up 90°
-const R_BACK = qmul(IDLE_R, qaxis(1,0,0, -Math.PI/2));   // right arm back 90°
-const R_UP   = qmul(IDLE_R, qaxis(1,0,0, Math.PI));      // right arm straight up (180°)
-const L_FWD  = qmul(IDLE_L, qaxis(-1,0,0, Math.PI/2));   // left arm forward+up (mirrored X)
-const L_BACK = qmul(IDLE_L, qaxis(-1,0,0, -Math.PI/2));  // left arm back (mirrored)
-const L_UP   = qmul(IDLE_L, qaxis(-1,0,0, Math.PI));     // left arm straight up (mirrored)
-
+// All poses defined directly from T-pose (identity).
+// Proven: Y rotation = frontal plane. +Y = down (idle direction), -Y = up.
+// For left arm: mirrored, so -Y = down, +Y = up.
+// Forward/back: Z rotation (sagittal plane). Right: -Z = fwd, +Z = back.
+// Left arm mirrored: +Z = fwd, -Z = back.
 const DEMO_POSES = {
   'tpose':      { UpperArmR: ID, LowerArmR: ID, UpperArmL: ID, LowerArmL: ID },
-  'rfwd-lback': { UpperArmR: R_FWD, LowerArmR: ID, UpperArmL: L_BACK, LowerArmL: ID },
-  'lfwd-rback': { UpperArmR: R_BACK, LowerArmR: ID, UpperArmL: L_FWD, LowerArmL: ID },
-  'arms-up':    { UpperArmR: R_UP, LowerArmR: ID, UpperArmL: L_UP, LowerArmL: ID },
-  'arms-fwd':   { UpperArmR: R_FWD, LowerArmR: ID, UpperArmL: L_FWD, LowerArmL: ID },
-  'arms-back':  { UpperArmR: R_BACK, LowerArmR: ID, UpperArmL: L_BACK, LowerArmL: ID },
+  'arms-up':    { UpperArmR: [0,-H,0,H], LowerArmR: ID, UpperArmL: [0,H,0,H], LowerArmL: ID },
+  'arms-fwd':   { UpperArmR: [0,0,-H,H], LowerArmR: ID, UpperArmL: [0,0,H,H], LowerArmL: ID },
+  'arms-back':  { UpperArmR: [0,0,H,H],  LowerArmR: ID, UpperArmL: [0,0,-H,H], LowerArmL: ID },
+  'rfwd-lback': { UpperArmR: [0,0,-H,H], LowerArmR: ID, UpperArmL: [0,0,-H,H], LowerArmL: ID },
+  'lfwd-rback': { UpperArmR: [0,0,H,H],  LowerArmR: ID, UpperArmL: [0,0,H,H],  LowerArmL: ID },
 };
 
-// Palm rotation twists applied to LowerArm bones (rotation around bone's local Y axis)
+// Palm rotation twists on LowerArm bones.
+// Twist axis for forearm in T-pose is along its length.
+// Try Y-axis rotation; if wrong axis, will swap to X or Z.
 const DEMO_ROTATIONS = {
   'none':       { LowerArmR: ID, LowerArmL: ID },
-  'palms-up':   { LowerArmR: qaxis(0,1,0, Math.PI/2),  LowerArmL: qaxis(0,-1,0, Math.PI/2) },
-  'palms-down': { LowerArmR: qaxis(0,1,0, -Math.PI/2), LowerArmL: qaxis(0,-1,0, -Math.PI/2) },
-  'palms-out':  { LowerArmR: qaxis(0,1,0, Math.PI),    LowerArmL: qaxis(0,-1,0, Math.PI) },
-  'palms-in':   { LowerArmR: ID, LowerArmL: ID },  // natural/default
+  'palms-up':   { LowerArmR: [0,H,0,H],   LowerArmL: [0,-H,0,H]  },
+  'palms-down': { LowerArmR: [0,-H,0,H],  LowerArmL: [0,H,0,H]   },
+  'palms-out':  { LowerArmR: [0,1,0,0],   LowerArmL: [0,-1,0,0]  },
+  'palms-in':   { LowerArmR: ID, LowerArmL: ID },
 };
 
 let currentDemoPose = null;
