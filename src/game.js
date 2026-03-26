@@ -280,9 +280,10 @@ window.addEventListener('message', (e) => {
 
 function enqueueAction(fighter, action) {
   if (fighter.buffer.length > 2) return;
-  if (fighter.attackCooldown > 0) return;
   // Post-uppercut exhaustion: can't punch, but can still kick
   if (action === 'punch' && fighter.punchExhaustion > 0) return;
+  // Allow buffering during attacks (for gatling cancels), but respect cooldown otherwise
+  if (fighter.attackCooldown > 0 && !fighter.inAttack()) return;
   fighter.buffer.push({ action, expires: world.frame + 10 });
 }
 
@@ -342,8 +343,14 @@ function consumeBufferedAction(fighter) {
 }
 
 function setState(f, next) {
+  // Preserve hit confirm across Active→Recovery so gatling cancel window extends into recovery
+  const keepConfirm =
+    (f.state === State.PunchActive && next === State.PunchRecovery) ||
+    (f.state === State.KickActive && next === State.KickRecovery) ||
+    (f.state === State.UppercutActive && next === State.UppercutRecovery);
+  const hadConfirm = f.hitConfirmedThisState;
   f.state = next; f.stateFrame = 0;
-  f.hitConfirmedThisState = false;
+  f.hitConfirmedThisState = keepConfirm ? hadConfirm : false;
 }
 
 // SF2-style proximity guard: returns true if attacker is a threat that should trigger block.
