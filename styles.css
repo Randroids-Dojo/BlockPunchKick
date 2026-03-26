@@ -183,6 +183,19 @@ html, body {
 }
 .demo-caption.visible { opacity: 1; }
 
+.demo-quit-btn {
+  position: fixed; top: 16px; left: 16px;
+  z-index: 160;
+  font-size: 0.9rem; font-weight: 700;
+  border: 1px solid rgba(100,130,200,0.4); border-radius: 8px;
+  padding: 8px 18px; color: #ccd;
+  background: rgba(15,20,40,0.75);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  backdrop-filter: blur(4px);
+}
+.demo-quit-btn:active { opacity: 0.7; }
+
 .help { display: none; }
 
 /* Embedded in iframe — same layout, just tighten padding */

@@ -809,9 +809,9 @@ function drawRoundDots(node, wins, type) {
 function render() {
   if (!rendererReady) return;
   if (gameMode === 'demo') {
-    // In demo mode, override camera to focus on the solo fighter
+    // In demo mode, spread fighters apart to get a medium zoom that shows the full robot
     const solo = { ...world.player };
-    const fakeCpu = { ...solo, x: solo.x }; // same position → camera centers on fighter
+    const fakeCpu = { ...solo, x: solo.x + 400 }; // offset triggers medium zoom
     updateDynamicCamera(solo, fakeCpu);
   } else {
     updateDynamicCamera(world.player, world.cpu);
@@ -899,6 +899,7 @@ let gameMode = 'title'; // 'title' | 'play' | 'demo'
 
 const titleScreen = document.getElementById('title-screen');
 const demoCaption = document.getElementById('demo-caption');
+const demoQuitBtn = document.getElementById('demo-quit-btn');
 const playBtn = document.getElementById('play-btn');
 const demoBtn = document.getElementById('demo-btn');
 
@@ -918,6 +919,7 @@ function showTitleScreen() {
   titleScreen.classList.remove('hidden');
   demoCaption.classList.remove('visible');
   demoCaption.textContent = '';
+  demoQuitBtn.style.display = 'none';
   setGameUIVisible(false);
   // Show both fighters idling at default positions for the background
   setFighterVisible('player', true);
@@ -957,6 +959,7 @@ function startDemo() {
   gameMode = 'demo';
   titleScreen.classList.add('hidden');
   setGameUIVisible(false);
+  demoQuitBtn.style.display = '';
   setFighterVisible('player', true);
   setFighterVisible('cpu', false);
 
@@ -1056,16 +1059,10 @@ function stepDemo() {
     p.facing = 1;
     p.hitFlash = 0;
 
-    // Advance to next move
+    // Advance to next move (loops continuously)
     demoIndex = (demoIndex + 1) % DEMO_MOVES.length;
     demoFrameCounter = 0;
     demoMoveStarted = false;
-
-    // If we've looped, return to title
-    if (demoIndex === 0) {
-      showTitleScreen();
-      return;
-    }
   }
 }
 
@@ -1073,6 +1070,7 @@ function stepDemo() {
 
 playBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); startPlay(); });
 demoBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); startDemo(); });
+demoQuitBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); showTitleScreen(); });
 // Also handle keyboard on title screen
 window.addEventListener('keydown', (e) => {
   if (gameMode === 'title') {
@@ -1083,12 +1081,6 @@ window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') showTitleScreen();
   }
 });
-// Exit demo on tap
-document.addEventListener('pointerdown', (e) => {
-  if (gameMode === 'demo' && !titleScreen.contains(e.target)) {
-    showTitleScreen();
-  }
-}, true);
 
 // Start on title screen
 world.paused = true;

@@ -16,10 +16,14 @@ const cameraLookAt = new THREE.Vector3(0, 1.5, 0);
 
 // Zoom state — default pulled back to show full arena
 const isEmbedded = window.self !== window.top;
-const DEFAULT_ZOOM = isEmbedded ? 24 : 18;
+const DEFAULT_ZOOM = isEmbedded ? 28 : 22;
 const MIN_ZOOM = 8;   // closest
-const MAX_ZOOM = 30;  // farthest
-let cameraZ = DEFAULT_ZOOM;
+const MAX_ZOOM = 40;  // farthest
+let cameraRadius = DEFAULT_ZOOM;
+
+// Orbital camera — angle around the ring (0 = front, PI/2 = side)
+let cameraOrbitAngle = 0;
+let cameraOrbitTarget = 0;
 
 // Dynamic camera — Samurai Shodown-style zoom based on fighter distance
 let dynamicZoomTarget = DEFAULT_ZOOM;
@@ -489,8 +493,8 @@ export async function initScene(canvas) {
   camera.position.set(0, 4.5, DEFAULT_ZOOM);
   camera.lookAt(0, 1.5, 0);
 
-  // Pinch-to-zoom on canvas
-  setupPinchZoom(canvas);
+  // Camera controls: scroll/pinch to zoom, right-drag/two-finger rotate
+  setupCameraControls(canvas);
 
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setSize(rect.width, rect.height, false);
@@ -928,36 +932,74 @@ export function updateFighter(fighterId, fighter) {
   }
 }
 
-function setupPinchZoom(canvas) {
+function setupCameraControls(canvas) {
   const pointers = new Map();
+  let prevTwoFingerAngle = null;
+  let prevTwoFingerDist = null;
 
   canvas.addEventListener('pointerdown', (e) => {
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
   });
 
   canvas.addEventListener('pointermove', (e) => {
     if (!pointers.has(e.pointerId)) return;
+    const prev = pointers.get(e.pointerId);
+
     if (pointers.size === 2) {
+      // Two-finger: pinch to zoom + angle to rotate
       const pts = [...pointers.values()];
       const oldDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const oldAngle = Math.atan2(pts[0].y - pts[1].y, pts[0].x - pts[1].x);
+
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
       const newPts = [...pointers.values()];
       const newDist = Math.hypot(newPts[0].x - newPts[1].x, newPts[0].y - newPts[1].y);
-      const scale = oldDist / newDist;
-      cameraZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZ * scale));
+      const newAngle = Math.atan2(newPts[0].y - newPts[1].y, newPts[0].x - newPts[1].x);
+
+      // Zoom from pinch distance change
+      if (prevTwoFingerDist !== null) {
+        const scale = prevTwoFingerDist / newDist;
+        cameraRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraRadius * scale));
+      }
+      prevTwoFingerDist = newDist;
+
+      // Rotate from two-finger angle change
+      if (prevTwoFingerAngle !== null) {
+        let deltaAngle = newAngle - prevTwoFingerAngle;
+        // Normalize to [-PI, PI]
+        if (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
+        if (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
+        cameraOrbitTarget += deltaAngle * 1.5;
+      }
+      prevTwoFingerAngle = newAngle;
+
+    } else if (pointers.size === 1 && prev.button === 2) {
+      // Right-click drag: rotate orbit (desktop)
+      const dx = e.clientX - prev.x;
+      cameraOrbitTarget += dx * 0.008;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
     } else {
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
     }
   });
 
-  const removePointer = (e) => pointers.delete(e.pointerId);
+  const removePointer = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) {
+      prevTwoFingerAngle = null;
+      prevTwoFingerDist = null;
+    }
+  };
   canvas.addEventListener('pointerup', removePointer);
   canvas.addEventListener('pointercancel', removePointer);
+
+  // Prevent context menu on right-click
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // Scroll wheel zoom for desktop
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    cameraZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZ + e.deltaY * 0.01));
+    cameraRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraRadius + e.deltaY * 0.02));
   }, { passive: false });
 }
 
@@ -980,8 +1022,8 @@ export function updateDynamicCamera(player, cpu) {
   // dx ranges roughly 0 (touching) to ~10 (full arena width)
   const CLOSE_DIST = 0.8;   // fighters very close
   const FAR_DIST = 6.0;     // fighters far apart
-  const ZOOM_CLOSE = isEmbedded ? 13 : 9;   // dramatic close-up
-  const ZOOM_FAR = isEmbedded ? 28 : 22;    // wide shot when far
+  const ZOOM_CLOSE = isEmbedded ? 18 : 14;   // dramatic close-up
+  const ZOOM_FAR = isEmbedded ? 32 : 26;     // wide shot when far
 
   const t = Math.max(0, Math.min(1, (dx - CLOSE_DIST) / (FAR_DIST - CLOSE_DIST)));
   dynamicZoomTarget = ZOOM_CLOSE + t * (ZOOM_FAR - ZOOM_CLOSE);
@@ -1024,18 +1066,20 @@ export function render3d() {
     shakeOffset.y = 0;
   }
 
-  // Smoothly lerp zoom and horizontal position toward dynamic targets
-  cameraZ += (dynamicZoomTarget - cameraZ) * CAMERA_LERP_SPEED;
-  cameraZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraZ));
+  // Smoothly lerp zoom and orbit angle toward targets
+  cameraRadius += (dynamicZoomTarget - cameraRadius) * CAMERA_LERP_SPEED;
+  cameraRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraRadius));
+  cameraOrbitAngle += (cameraOrbitTarget - cameraOrbitAngle) * 0.12;
 
   // Drop camera height when zoomed in for a more dramatic angle
-  const zoomNorm = (cameraZ - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM); // 0 = closest, 1 = farthest
+  const zoomNorm = (cameraRadius - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM); // 0 = closest, 1 = farthest
   const cameraY = 3.0 + zoomNorm * 2.0; // 3.0 close-up → 5.0 pulled back
   const lookY = 1.2 + zoomNorm * 0.5;   // look target follows slightly
 
-  camera.position.x = dynamicCameraX + shakeOffset.x;
+  // Orbital position: camera orbits around the look target
+  camera.position.x = dynamicCameraX + Math.sin(cameraOrbitAngle) * cameraRadius + shakeOffset.x;
   camera.position.y = cameraY + shakeOffset.y;
-  camera.position.z = cameraZ;
+  camera.position.z = Math.cos(cameraOrbitAngle) * cameraRadius;
   cameraLookAt.x = dynamicCameraX;
   cameraLookAt.y = lookY;
   camera.lookAt(cameraLookAt);
