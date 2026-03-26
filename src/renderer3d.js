@@ -1008,6 +1008,9 @@ export function setFighterVisible(fighterId, visible) {
   if (model) model.visible = visible;
 }
 
+let globalTimeScale = 1.0;
+export function setGlobalTimeScale(scale) { globalTimeScale = scale; }
+
 export function triggerScreenShake(intensity) {
   shakeDecay = intensity;
 }
@@ -1049,7 +1052,7 @@ export function render3d() {
   if (!renderer) return;
   resizeRenderer();
 
-  const delta = clock.getDelta();
+  const delta = clock.getDelta() * globalTimeScale;
 
   // Update animation mixers (skip when KO animation is fully done — freeze on last frame)
   if (mixers.player && koPhase.player !== 'done') mixers.player.update(delta);

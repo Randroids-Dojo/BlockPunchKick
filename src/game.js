@@ -1,4 +1,4 @@
-import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible } from './renderer3d.js';
+import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible, setGlobalTimeScale } from './renderer3d.js';
 
 const TICK_RATE = 120;
 const DT = 1 / TICK_RATE;
@@ -884,7 +884,9 @@ function step() {
 let lastTime = 0, accumulator = 0;
 function gameLoop(ts) {
   if (!lastTime) lastTime = ts;
-  accumulator += Math.min(0.06, (ts - lastTime) / 1000);
+  const rawDelta = Math.min(0.06, (ts - lastTime) / 1000);
+  const timeScale = gameMode === 'demo' ? DEMO_SPEEDS[demoSpeedIndex].scale : 1.0;
+  accumulator += rawDelta * timeScale;
   lastTime = ts;
   while (accumulator >= DT) {
     step();
@@ -916,6 +918,8 @@ function showTitleScreen() {
   world.paused = true;
   titleScreen.classList.remove('hidden');
   demoPanel.style.display = 'none';
+  setGlobalTimeScale(1.0);
+  demoSpeedIndex = 0;
   setGameUIVisible(false);
   // Show both fighters idling at default positions for the background
   setFighterVisible('player', true);
@@ -955,7 +959,6 @@ const DEMO_SPEEDS = [
 
 let demoCurrentMove = null;      // key into DEMO_MOVE_DEFS
 let demoSpeedIndex = 0;
-let demoFrameAccum = 0;          // fractional frame accumulator for slow speeds
 
 const demoPanel = document.getElementById('demo-panel');
 const demoCaptionEl = document.getElementById('demo-caption');
@@ -1033,18 +1036,12 @@ function startDemo() {
 
   world.paused = false;
   demoCurrentMove = 'idle';
-  demoFrameAccum = 0;
+  setGlobalTimeScale(DEMO_SPEEDS[demoSpeedIndex].scale);
   demoCaptionEl.textContent = 'Idle';
   demoMoveBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.move === 'idle'));
 }
 
 function stepDemo() {
-  // Speed control: accumulate fractional frames
-  const speed = DEMO_SPEEDS[demoSpeedIndex].scale;
-  demoFrameAccum += speed;
-  if (demoFrameAccum < 1) return; // skip this tick at slow speeds
-  demoFrameAccum -= 1;
-
   const p = world.player;
   const def = demoCurrentMove ? DEMO_MOVE_DEFS[demoCurrentMove] : null;
 
@@ -1083,6 +1080,7 @@ demoSpeedBtn.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   demoSpeedIndex = (demoSpeedIndex + 1) % DEMO_SPEEDS.length;
   demoSpeedBtn.textContent = DEMO_SPEEDS[demoSpeedIndex].label;
+  setGlobalTimeScale(DEMO_SPEEDS[demoSpeedIndex].scale);
 });
 
 // ─── Button Handlers ────────────────────────────────────────────
