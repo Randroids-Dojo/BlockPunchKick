@@ -91,6 +91,7 @@ html, body {
   outline: none;
 }
 .btn:active { opacity: 0.8; transform: scale(0.95); }
+.btn.disabled { opacity: 0.35; filter: grayscale(0.8); pointer-events: none; }
 .btn.block { background: #4f67c9; }
 .btn.punch { background: #3987c9; }
 .btn.kick { background: #bf4a4a; }

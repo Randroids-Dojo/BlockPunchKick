@@ -93,6 +93,7 @@ const ui = {
   p1Rounds: document.getElementById('p1-rounds'), p2Rounds: document.getElementById('p2-rounds'),
   timer: document.getElementById('timer'), roundText: document.getElementById('round-text'), announcement: document.getElementById('announcement'),
   comboP1: document.getElementById('combo-p1'), comboP2: document.getElementById('combo-p2'),
+  punchBtn: document.getElementById('punch-btn'), kickBtn: document.getElementById('kick-btn'),
 };
 
 const keyMap = {
@@ -763,6 +764,12 @@ function updateHud() {
   // (comboCount is on the defender, so cpu.comboCount = hits landed BY player)
   updateComboDisplay(ui.comboP1, world.cpu.comboCount, world.cpu.comboTimer);
   updateComboDisplay(ui.comboP2, world.player.comboCount, world.player.comboTimer);
+
+  // Gray out buttons when attacks are temporarily locked out
+  const p = world.player;
+  const busy = p.inAttack() || p.state === State.HitStun || p.state === State.BlockStun;
+  ui.punchBtn.classList.toggle('disabled', busy || p.punchExhaustion > 0);
+  ui.kickBtn.classList.toggle('disabled', busy);
 }
 
 function updateComboDisplay(el, comboCount, comboTimer) {
