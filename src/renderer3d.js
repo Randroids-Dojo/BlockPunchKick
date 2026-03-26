@@ -826,7 +826,7 @@ export function updateFighter(fighterId, fighter) {
   if (fighter.state.startsWith('Punch_') && fighter.punchChain >= 1) {
     clipName = 'PunchLeft';
   }
-  // Skip animation playback entirely when demo pose is active for this fighter
+  // Skip animation when demo pose is active (but keep positioning above)
   if (demoPoseData && fighterId === 'player') return;
   // Don't override clip during death/done phase of KO sequence
   if (koPhase[fighterId] !== 'death' && koPhase[fighterId] !== 'done') {
@@ -1094,19 +1094,24 @@ export function render3d() {
 
   const delta = clock.getDelta() * globalTimeScale;
 
-  // When demo pose is active, stop the player mixer so it doesn't fight with bone overrides
-  if (demoPoseData && mixers.player) {
-    mixers.player.stopAllAction();
-    // Set ALL bones to their override values
+  // When demo pose is active, bypass the mixer entirely and set bones directly
+  if (demoPoseData && fighterModels.player) {
+    // Reset ALL bones to identity (bind pose) first, then apply overrides
+    fighterModels.player.traverse(obj => {
+      if (obj.isBone) obj.quaternion.set(0, 0, 0, 1);
+    });
+    // Apply pose overrides on top
     for (const [boneName, quat] of Object.entries(demoPoseData)) {
       const bone = getBone(fighterModels.player, boneName);
       if (bone) bone.quaternion.set(quat[0], quat[1], quat[2], quat[3]);
     }
+    // Still update CPU mixer
+    if (mixers.cpu && koPhase.cpu !== 'done') mixers.cpu.update(delta);
   } else {
     // Update animation mixers normally
     if (mixers.player && koPhase.player !== 'done') mixers.player.update(delta);
+    if (mixers.cpu && koPhase.cpu !== 'done') mixers.cpu.update(delta);
   }
-  if (mixers.cpu && koPhase.cpu !== 'done') mixers.cpu.update(delta);
 
 
   // Screen shake
