@@ -1079,11 +1079,50 @@ const IDLE_BONES = {
   LowerLegR: [0.2772, 0.0000, 0.0000, 0.9608],
 };
 
+// ── Arm Direction Abstraction ────────────────────────────────────
+// Maps human-readable directions to Euler rotations composed on idle.
+// Each direction is [rx, ry, rz] applied via idleCompose().
+// These values encode all the model-specific axis knowledge in one place.
+// If a direction is wrong, fix it here and ALL poses using it update.
+
+const H = Math.PI / 2; // 90 degrees
+
+const ARM_DIRECTIONS = {
+  right: {
+    down:    [0, 0, 0],        // idle position (no extra rotation)
+    forward: [H, 0, 0],       // arm swings forward
+    back:    [-H, 0, 0],      // arm swings back
+    up:      [0, 0, H],       // arm raises above head
+    out:     [0, -H, 0],      // arm extends to the side (T-pose)
+    in:      [0, H, 0],       // arm crosses toward body
+  },
+  left: {
+    down:    [0, 0, 0],
+    forward: [H, 0, 0],       // X is same for both arms
+    back:    [-H, 0, 0],
+    up:      [0, 0, -H],      // Z is mirrored
+    out:     [0, H, 0],       // Y is mirrored
+    in:      [0, -H, 0],
+  },
+};
+
 // Compose a rotation on top of an idle bone quaternion
 function idleCompose(boneName, rx, ry, rz) {
   const idle = new THREE.Quaternion(...IDLE_BONES[boneName]);
   const rot = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz));
   return idle.multiply(rot);
+}
+
+// Build arm overrides from direction names: { right: 'forward', left: 'back' }
+function armPose(rightDir, leftDir) {
+  const r = ARM_DIRECTIONS.right[rightDir];
+  const l = ARM_DIRECTIONS.left[leftDir];
+  return {
+    UpperArmR: idleCompose('UpperArmR', ...r),
+    LowerArmR: idleCompose('LowerArmR', ...r),
+    UpperArmL: idleCompose('UpperArmL', ...l),
+    LowerArmL: idleCompose('LowerArmL', ...l),
+  };
 }
 
 // Build a hold-pose AnimationClip. Includes ALL bones so it fully replaces
@@ -1105,45 +1144,14 @@ let activePoseName = null;
 
 // Register all pose clips with the player mixer. Called during initScene.
 function registerPoseClips(mixer) {
-  const H = Math.PI / 2; // 90 degrees
-
+  // Pose definitions — just English words!
   const poses = {
-    'tpose': {
-      UpperArmR: idleCompose('UpperArmR', 0, -H, 0),
-      LowerArmR: idleCompose('LowerArmR', 0, -H, 0),
-      UpperArmL: idleCompose('UpperArmL', 0, H, 0),
-      LowerArmL: idleCompose('LowerArmL', 0, H, 0),
-    },
-    'arms-up': {
-      UpperArmR: idleCompose('UpperArmR', 0, 0, H),
-      LowerArmR: idleCompose('LowerArmR', 0, 0, H),
-      UpperArmL: idleCompose('UpperArmL', 0, 0, -H),
-      LowerArmL: idleCompose('LowerArmL', 0, 0, -H),
-    },
-    'arms-fwd': {
-      UpperArmR: idleCompose('UpperArmR', H, 0, 0),
-      LowerArmR: idleCompose('LowerArmR', H, 0, 0),
-      UpperArmL: idleCompose('UpperArmL', H, 0, 0),
-      LowerArmL: idleCompose('LowerArmL', H, 0, 0),
-    },
-    'arms-back': {
-      UpperArmR: idleCompose('UpperArmR', -H, 0, 0),
-      LowerArmR: idleCompose('LowerArmR', -H, 0, 0),
-      UpperArmL: idleCompose('UpperArmL', -H, 0, 0),
-      LowerArmL: idleCompose('LowerArmL', -H, 0, 0),
-    },
-    'rfwd-lback': {
-      UpperArmR: idleCompose('UpperArmR', H, 0, 0),
-      LowerArmR: idleCompose('LowerArmR', H, 0, 0),
-      UpperArmL: idleCompose('UpperArmL', -H, 0, 0),
-      LowerArmL: idleCompose('LowerArmL', -H, 0, 0),
-    },
-    'lfwd-rback': {
-      UpperArmR: idleCompose('UpperArmR', -H, 0, 0),
-      LowerArmR: idleCompose('LowerArmR', -H, 0, 0),
-      UpperArmL: idleCompose('UpperArmL', H, 0, 0),
-      LowerArmL: idleCompose('LowerArmL', H, 0, 0),
-    },
+    'tpose':      armPose('out',     'out'),
+    'arms-up':    armPose('up',      'up'),
+    'arms-fwd':   armPose('forward', 'forward'),
+    'arms-back':  armPose('back',    'back'),
+    'rfwd-lback': armPose('forward', 'back'),
+    'lfwd-rback': armPose('back',    'forward'),
   };
 
   const poseActions = {};
