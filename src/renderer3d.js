@@ -1087,21 +1087,23 @@ const IDLE_BONES = {
 
 const H = Math.PI / 2; // 90 degrees
 
+const UP_ANGLE = Math.PI * 0.85; // ~153° to get arms truly vertical from idle
+
 const ARM_DIRECTIONS = {
   right: {
-    down:    [0, 0, 0],        // idle position (no extra rotation)
-    forward: [H, 0, 0],       // arm swings forward
-    back:    [-H, 0, 0],      // arm swings back
-    up:      [0, 0, H],       // arm raises above head
-    out:     [0, -H, 0],      // arm extends to the side (T-pose)
-    in:      [0, H, 0],       // arm crosses toward body
+    down:    [0, 0, 0],           // idle position (no extra rotation)
+    forward: [H, 0, 0],          // arm swings forward
+    back:    [-H, 0, 0],         // arm swings back
+    up:      [0, 0, UP_ANGLE],   // arm raises above head (needs >90° from idle)
+    out:     [0, -H, 0],         // arm extends to the side (T-pose)
+    in:      [0, H, 0],          // arm crosses toward body
   },
   left: {
     down:    [0, 0, 0],
-    forward: [H, 0, 0],       // X is same for both arms
+    forward: [H, 0, 0],          // X is same for both arms
     back:    [-H, 0, 0],
-    up:      [0, 0, -H],      // Z is mirrored
-    out:     [0, H, 0],       // Y is mirrored
+    up:      [0, 0, -UP_ANGLE],  // Z is mirrored
+    out:     [0, H, 0],          // Y is mirrored
     in:      [0, -H, 0],
   },
 };

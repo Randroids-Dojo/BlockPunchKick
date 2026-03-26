@@ -817,7 +817,7 @@ function render() {
     updateDynamicCamera(world.player, world.cpu);
   }
   updateFighter('player', world.player);
-  updateFighter('cpu', world.cpu);
+  if (gameMode !== 'demo') updateFighter('cpu', world.cpu);
   render3d();
 }
 
