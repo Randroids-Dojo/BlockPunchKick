@@ -1113,15 +1113,15 @@ const H = Math.SQRT1_2;  // 0.7071...
 // All poses defined directly from T-pose (identity).
 // Proven: Y rotation = frontal plane. +Y = down (idle direction), -Y = up.
 // For left arm: mirrored, so -Y = down, +Y = up.
-// Forward/back: Z rotation (sagittal plane). Right: -Z = fwd, +Z = back.
-// Left arm mirrored: +Z = fwd, -Z = back.
+// Forward/back: X rotation (sagittal plane). Right: +X = fwd, -X = back.
+// Left arm mirrored: -X = fwd, +X = back.
 const DEMO_POSES = {
   'tpose':      { UpperArmR: ID, LowerArmR: ID, UpperArmL: ID, LowerArmL: ID },
   'arms-up':    { UpperArmR: [0,-H,0,H], LowerArmR: ID, UpperArmL: [0,H,0,H], LowerArmL: ID },
-  'arms-fwd':   { UpperArmR: [0,0,-H,H], LowerArmR: ID, UpperArmL: [0,0,H,H], LowerArmL: ID },
-  'arms-back':  { UpperArmR: [0,0,H,H],  LowerArmR: ID, UpperArmL: [0,0,-H,H], LowerArmL: ID },
-  'rfwd-lback': { UpperArmR: [0,0,-H,H], LowerArmR: ID, UpperArmL: [0,0,-H,H], LowerArmL: ID },
-  'lfwd-rback': { UpperArmR: [0,0,H,H],  LowerArmR: ID, UpperArmL: [0,0,H,H],  LowerArmL: ID },
+  'arms-fwd':   { UpperArmR: [H,0,0,H],  LowerArmR: ID, UpperArmL: [-H,0,0,H], LowerArmL: ID },
+  'arms-back':  { UpperArmR: [-H,0,0,H], LowerArmR: ID, UpperArmL: [H,0,0,H],  LowerArmL: ID },
+  'rfwd-lback': { UpperArmR: [H,0,0,H],  LowerArmR: ID, UpperArmL: [H,0,0,H],  LowerArmL: ID },
+  'lfwd-rback': { UpperArmR: [-H,0,0,H], LowerArmR: ID, UpperArmL: [-H,0,0,H], LowerArmL: ID },
 };
 
 // Palm rotation twists on LowerArm bones.
