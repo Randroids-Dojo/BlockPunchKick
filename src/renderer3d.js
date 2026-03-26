@@ -1128,14 +1128,13 @@ function idleCompose(boneName, rx, ry, rz) {
 }
 
 // Build arm overrides from direction names: { right: 'forward', left: 'back' }
+// Only rotates upper arms; lower arms stay at idle (natural hang from elbow).
 function armPose(rightDir, leftDir) {
   const r = ARM_DIRECTIONS.right[rightDir];
   const l = ARM_DIRECTIONS.left[leftDir];
   return {
     UpperArmR: idleCompose('UpperArmR', ...r),
-    LowerArmR: idleCompose('LowerArmR', ...r),
     UpperArmL: idleCompose('UpperArmL', ...l),
-    LowerArmL: idleCompose('LowerArmL', ...l),
   };
 }
 
