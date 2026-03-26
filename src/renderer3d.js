@@ -1221,7 +1221,7 @@ export function render3d() {
 
   // Update animation mixers normally
   if (mixers.player && koPhase.player !== 'done') mixers.player.update(delta);
-  if (mixers.cpu && koPhase.cpu !== 'done') mixers.cpu.update(delta);
+  if (mixers.cpu && koPhase.cpu !== 'done' && fighterModels.cpu?.visible !== false) mixers.cpu.update(delta);
 
 
 

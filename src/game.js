@@ -1038,8 +1038,10 @@ function startDemo() {
   resetDemoFighter();
 
   const c = world.cpu;
-  c.x = -500; c.y = 560;
+  c.x = -9999; c.y = 560; // move far off-screen
   setState(c, State.Idle);
+  // Update CPU once to move it off-screen, then it won't be updated again
+  updateFighter('cpu', c);
 
   world.paused = false;
   demoCurrentMove = 'idle';
