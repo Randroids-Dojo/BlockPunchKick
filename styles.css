@@ -171,11 +171,19 @@ html, body {
   background: rgba(8,12,28,0.88);
   border-top: 1px solid rgba(80,110,200,0.3);
   backdrop-filter: blur(8px);
-  padding: 8px 12px 12px;
+  max-height: 25vh;
+  display: flex; flex-direction: column;
 }
 .demo-header {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 8px;
+  padding: 6px 12px;
+  flex-shrink: 0;
+}
+.demo-scroll {
+  overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 12px 10px;
+  flex: 1; min-height: 0;
 }
 .demo-caption-inline {
   font-size: 1.1rem; font-weight: 700; color: #ffe16b;
