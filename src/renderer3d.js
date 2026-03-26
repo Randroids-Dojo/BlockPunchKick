@@ -36,9 +36,9 @@ const ANIM_MAP = {
   Kick_Startup: 'Kick',
   Kick_Active: 'Kick',
   Kick_Recovery: 'Kick',
-  Uppercut_Startup: 'Punch',
-  Uppercut_Active: 'Punch',
-  Uppercut_Recovery: 'Punch',
+  Uppercut_Startup: 'Uppercut',
+  Uppercut_Active: 'Uppercut',
+  Uppercut_Recovery: 'Uppercut',
   Hit_Stun: 'Death',
   Block_Stun: 'ThumbsUp',
   KO: 'Idle',  // base clip during KO; sequenced to Death after HeadSpin
@@ -276,6 +276,198 @@ function createKickClip(model) {
   return new THREE.AnimationClip('Kick', 0.5, tracks);
 }
 
+// Build a procedural left-jab AnimationClip (2nd punch in combo chain).
+// Mirrors the right-hand punch: left arm extends forward, right arm guards.
+// Body twists into the punch for weight transfer.
+function createPunchLeftClip() {
+  const idle = {
+    Body:      [0.0000, 0.0000, -0.0000, 1.0000],
+    Head:      [-0.0309, -0.0029, -0.0013, 0.9995],
+    UpperArmL: [-0.0546, -0.6899, 0.0692, 0.7185],
+    LowerArmL: [0.3100, 0.4993, -0.3649, 0.7221],
+    UpperArmR: [0.0436, 0.8046, 0.0575, 0.5895],
+    LowerArmR: [0.2578, -0.5525, 0.4427, 0.6575],
+  };
+
+  const punch = {
+    // --- Left arm (punching) ---
+    // Windup: pull shoulder back slightly, chamber fist
+    UpperArmL_windup:  [-0.12, -0.74, 0.10, 0.66],
+    LowerArmL_windup:  [0.45, 0.42, -0.38, 0.69],
+    // Extend: arm shoots forward, elbow straight
+    UpperArmL_extend:  [0.50, -0.50, -0.28, 0.65],
+    LowerArmL_extend:  [0.05, 0.10, -0.05, 0.99],
+
+    // --- Right arm (guard, tucked in) ---
+    UpperArmR_guard:   [-0.08, 0.78, 0.12, 0.61],
+    LowerArmR_guard:   [0.38, -0.48, 0.42, 0.67],
+
+    // --- Body twist into punch ---
+    Body_windup:       [0.00, 0.05, 0.00, 1.00],   // slight twist away
+    Body_extend:       [0.00, -0.07, 0.00, 1.00],   // twist into punch
+  };
+
+  // Keyframes: idle → windup → extend → hold → retract
+  const times = [0, 0.05, 0.11, 0.16, 0.35];
+
+  const tracks = [
+    // Left arm (punching)
+    new THREE.QuaternionKeyframeTrack('UpperArmL.quaternion', times, [
+      ...idle.UpperArmL,
+      ...punch.UpperArmL_windup,
+      ...punch.UpperArmL_extend,
+      ...punch.UpperArmL_extend,
+      ...idle.UpperArmL,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerArmL.quaternion', times, [
+      ...idle.LowerArmL,
+      ...punch.LowerArmL_windup,
+      ...punch.LowerArmL_extend,
+      ...punch.LowerArmL_extend,
+      ...idle.LowerArmL,
+    ]),
+
+    // Right arm (guard)
+    new THREE.QuaternionKeyframeTrack('UpperArmR.quaternion', times, [
+      ...idle.UpperArmR,
+      ...punch.UpperArmR_guard,
+      ...punch.UpperArmR_guard,
+      ...punch.UpperArmR_guard,
+      ...idle.UpperArmR,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerArmR.quaternion', times, [
+      ...idle.LowerArmR,
+      ...punch.LowerArmR_guard,
+      ...punch.LowerArmR_guard,
+      ...punch.LowerArmR_guard,
+      ...idle.LowerArmR,
+    ]),
+
+    // Body twist
+    new THREE.QuaternionKeyframeTrack('Body.quaternion', times, [
+      ...idle.Body,
+      ...punch.Body_windup,
+      ...punch.Body_extend,
+      ...punch.Body_extend,
+      ...idle.Body,
+    ]),
+
+    // Head stays neutral
+    new THREE.QuaternionKeyframeTrack('Head.quaternion', times, [
+      ...idle.Head, ...idle.Head, ...idle.Head, ...idle.Head, ...idle.Head,
+    ]),
+  ];
+
+  return new THREE.AnimationClip('PunchLeft', 0.35, tracks);
+}
+
+// Build a procedural uppercut AnimationClip (3rd punch combo finisher).
+// Body dips down for the windup, then rises as the right arm swings upward.
+// More dramatic motion with big body commitment.
+function createUppercutClip() {
+  const idle = {
+    Body:      [0.0000, 0.0000, -0.0000, 1.0000],
+    Head:      [-0.0309, -0.0029, -0.0013, 0.9995],
+    UpperArmL: [-0.0546, -0.6899, 0.0692, 0.7185],
+    LowerArmL: [0.3100, 0.4993, -0.3649, 0.7221],
+    UpperArmR: [0.0436, 0.8046, 0.0575, 0.5895],
+    LowerArmR: [0.2578, -0.5525, 0.4427, 0.6575],
+    UpperLegL: [0.9855, 0.0176, -0.0843, 0.1461],
+    LowerLegL: [0.2772, 0.0000, 0.0000, 0.9608],
+    UpperLegR: [0.9795, -0.0257, 0.1373, 0.1449],
+    LowerLegR: [0.2772, 0.0000, 0.0000, 0.9608],
+  };
+
+  const uc = {
+    // --- Body: dip down then rise up ---
+    Body_dip:     [0.07, 0.00, 0.00, 0.998],    // lean forward (crouch)
+    Body_rise:    [-0.10, 0.00, 0.00, 0.995],    // lean back (rising into punch)
+
+    // --- Right arm (uppercut): drops low then swings upward ---
+    UpperArmR_dip:    [0.20, 0.88, -0.08, 0.42],    // arm dropped low
+    LowerArmR_dip:    [0.62, -0.22, 0.18, 0.73],    // fist low, arm bent
+    UpperArmR_rise:   [-0.35, 0.60, 0.35, 0.62],    // arm swung high
+    LowerArmR_rise:   [0.08, -0.12, 0.08, 0.99],    // arm extended upward
+
+    // --- Left arm (guard position) ---
+    UpperArmL_guard:  [0.23, -0.77, -0.09, 0.59],
+    LowerArmL_guard:  [0.15, 0.52, -0.66, 0.53],
+
+    // --- Legs: slight crouch on dip ---
+    UpperLegL_dip:    [0.9750, 0.0176, -0.0843, 0.2050],
+    LowerLegL_dip:    [0.3600, 0.0000, 0.0000, 0.9330],
+    UpperLegR_dip:    [0.9690, -0.0257, 0.1373, 0.2050],
+    LowerLegR_dip:    [0.3600, 0.0000, 0.0000, 0.9330],
+  };
+
+  // Keyframes: idle → dip/windup → rise/extend → hold → retract
+  const times = [0, 0.08, 0.16, 0.24, 0.48];
+
+  const tracks = [
+    // Body
+    new THREE.QuaternionKeyframeTrack('Body.quaternion', times, [
+      ...idle.Body,
+      ...uc.Body_dip,
+      ...uc.Body_rise,
+      ...uc.Body_rise,
+      ...idle.Body,
+    ]),
+
+    // Right arm (uppercut)
+    new THREE.QuaternionKeyframeTrack('UpperArmR.quaternion', times, [
+      ...idle.UpperArmR,
+      ...uc.UpperArmR_dip,
+      ...uc.UpperArmR_rise,
+      ...uc.UpperArmR_rise,
+      ...idle.UpperArmR,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerArmR.quaternion', times, [
+      ...idle.LowerArmR,
+      ...uc.LowerArmR_dip,
+      ...uc.LowerArmR_rise,
+      ...uc.LowerArmR_rise,
+      ...idle.LowerArmR,
+    ]),
+
+    // Left arm (guard)
+    new THREE.QuaternionKeyframeTrack('UpperArmL.quaternion', times, [
+      ...idle.UpperArmL,
+      ...uc.UpperArmL_guard,
+      ...uc.UpperArmL_guard,
+      ...uc.UpperArmL_guard,
+      ...idle.UpperArmL,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerArmL.quaternion', times, [
+      ...idle.LowerArmL,
+      ...uc.LowerArmL_guard,
+      ...uc.LowerArmL_guard,
+      ...uc.LowerArmL_guard,
+      ...idle.LowerArmL,
+    ]),
+
+    // Head stays neutral
+    new THREE.QuaternionKeyframeTrack('Head.quaternion', times, [
+      ...idle.Head, ...idle.Head, ...idle.Head, ...idle.Head, ...idle.Head,
+    ]),
+
+    // Legs: slight crouch on dip, return to idle on rise
+    new THREE.QuaternionKeyframeTrack('UpperLegL.quaternion', times, [
+      ...idle.UpperLegL, ...uc.UpperLegL_dip, ...idle.UpperLegL, ...idle.UpperLegL, ...idle.UpperLegL,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerLegL.quaternion', times, [
+      ...idle.LowerLegL, ...uc.LowerLegL_dip, ...idle.LowerLegL, ...idle.LowerLegL, ...idle.LowerLegL,
+    ]),
+    new THREE.QuaternionKeyframeTrack('UpperLegR.quaternion', times, [
+      ...idle.UpperLegR, ...uc.UpperLegR_dip, ...idle.UpperLegR, ...idle.UpperLegR, ...idle.UpperLegR,
+    ]),
+    new THREE.QuaternionKeyframeTrack('LowerLegR.quaternion', times, [
+      ...idle.LowerLegR, ...uc.LowerLegR_dip, ...idle.LowerLegR, ...idle.LowerLegR, ...idle.LowerLegR,
+    ]),
+  ];
+
+  return new THREE.AnimationClip('Uppercut', 0.48, tracks);
+}
+
 // Map game world coords to 3D scene coords
 // Game arena: x 100-1180, y 430-600
 // 3D scene: x roughly -5 to 5, z for depth
@@ -487,12 +679,24 @@ export async function initScene(canvas) {
     actions.player[clip.name] = action;
   }
 
-  // Register procedural kick clip for player
+  // Register procedural clips for player
   const kickClip = createKickClip(playerModel);
   const playerKickAction = playerMixer.clipAction(kickClip);
   playerKickAction.setLoop(THREE.LoopOnce);
   playerKickAction.clampWhenFinished = true;
   actions.player['Kick'] = playerKickAction;
+
+  const punchLeftClip = createPunchLeftClip();
+  const playerPunchLeftAction = playerMixer.clipAction(punchLeftClip);
+  playerPunchLeftAction.setLoop(THREE.LoopOnce);
+  playerPunchLeftAction.clampWhenFinished = true;
+  actions.player['PunchLeft'] = playerPunchLeftAction;
+
+  const uppercutClip = createUppercutClip();
+  const playerUppercutAction = playerMixer.clipAction(uppercutClip);
+  playerUppercutAction.setLoop(THREE.LoopOnce);
+  playerUppercutAction.clampWhenFinished = true;
+  actions.player['Uppercut'] = playerUppercutAction;
 
   // HeadSpin overlay for player
   if (actions.player['HeadSpin']) {
@@ -534,11 +738,21 @@ export async function initScene(canvas) {
     actions.cpu[clip.name] = action;
   }
 
-  // Register procedural kick clip for CPU
+  // Register procedural clips for CPU
   const cpuKickAction = cpuMixer.clipAction(kickClip);
   cpuKickAction.setLoop(THREE.LoopOnce);
   cpuKickAction.clampWhenFinished = true;
   actions.cpu['Kick'] = cpuKickAction;
+
+  const cpuPunchLeftAction = cpuMixer.clipAction(punchLeftClip);
+  cpuPunchLeftAction.setLoop(THREE.LoopOnce);
+  cpuPunchLeftAction.clampWhenFinished = true;
+  actions.cpu['PunchLeft'] = cpuPunchLeftAction;
+
+  const cpuUppercutAction = cpuMixer.clipAction(uppercutClip);
+  cpuUppercutAction.setLoop(THREE.LoopOnce);
+  cpuUppercutAction.clampWhenFinished = true;
+  actions.cpu['Uppercut'] = cpuUppercutAction;
 
   // HeadSpin overlay for CPU
   if (actions.cpu['HeadSpin']) {
@@ -600,6 +814,10 @@ export function updateFighter(fighterId, fighter) {
   if (fighter.state === 'Move') {
     clipName = speed > 180 ? 'Running' : 'Walking';
   }
+  // 2nd punch in combo chain uses the left-arm jab animation
+  if (fighter.state.startsWith('Punch_') && fighter.punchChain >= 1) {
+    clipName = 'PunchLeft';
+  }
   // Don't override clip during death/done phase of KO sequence
   if (koPhase[fighterId] !== 'death' && koPhase[fighterId] !== 'done') {
     playClip(fighterId, clipName);
@@ -627,6 +845,15 @@ export function updateFighter(fighterId, fighter) {
     } else if (fighter.state === 'Kick_Recovery') {
       // Fast retract back to idle
       currentAction.timeScale = 2.5;
+    } else if (fighter.state === 'Uppercut_Startup') {
+      // Fast dip into the windup crouch
+      currentAction.timeScale = 2.2;
+    } else if (fighter.state === 'Uppercut_Active') {
+      // Slow through the rising extension for impact feel
+      currentAction.timeScale = 0.35;
+    } else if (fighter.state === 'Uppercut_Recovery') {
+      // Return from uppercut pose
+      currentAction.timeScale = 1.5;
     } else if (fighter.state.includes('Startup')) {
       currentAction.timeScale = 1.5;
     } else if (fighter.state.includes('Recovery')) {
