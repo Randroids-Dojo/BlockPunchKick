@@ -164,37 +164,57 @@ html, body {
   background: linear-gradient(135deg, #666, #444);
 }
 
-/* Demo caption overlay */
-.demo-caption {
-  position: fixed; bottom: 80px; left: 50%;
-  transform: translateX(-50%);
+/* Demo panel */
+.demo-panel {
+  position: fixed; bottom: 0; left: 0; right: 0;
   z-index: 150;
-  font-size: 1.3rem; font-weight: 700;
-  color: #fff;
-  text-shadow: 0 0 10px rgba(50,130,255,0.6), 0 2px 6px rgba(0,0,0,0.8);
-  text-align: center;
-  padding: 8px 24px;
-  background: rgba(10,15,35,0.7);
-  border: 1px solid rgba(100,140,220,0.3);
-  border-radius: 10px;
-  pointer-events: none;
-  opacity: 0; transition: opacity 0.3s;
-  white-space: nowrap;
+  background: rgba(8,12,28,0.88);
+  border-top: 1px solid rgba(80,110,200,0.3);
+  backdrop-filter: blur(8px);
+  padding: 8px 12px 12px;
 }
-.demo-caption.visible { opacity: 1; }
-
-.demo-quit-btn {
-  position: fixed; top: 16px; left: 16px;
-  z-index: 160;
-  font-size: 0.9rem; font-weight: 700;
+.demo-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.demo-caption-inline {
+  font-size: 1.1rem; font-weight: 700; color: #ffe16b;
+  text-shadow: 0 0 8px rgba(255,200,0,0.4);
+  flex: 1; text-align: center;
+  min-height: 1.4em;
+}
+.demo-quit-btn, .demo-speed-btn {
+  font-size: 0.85rem; font-weight: 700;
   border: 1px solid rgba(100,130,200,0.4); border-radius: 8px;
-  padding: 8px 18px; color: #ccd;
-  background: rgba(15,20,40,0.75);
+  padding: 6px 14px; color: #ccd;
+  background: rgba(20,28,55,0.8);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  backdrop-filter: blur(4px);
+  white-space: nowrap;
 }
-.demo-quit-btn:active { opacity: 0.7; }
+.demo-quit-btn:active, .demo-speed-btn:active { opacity: 0.7; }
+.demo-moves {
+  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+}
+.demo-move-btn {
+  font-size: 0.85rem; font-weight: 600;
+  border: 1px solid rgba(100,130,200,0.3); border-radius: 8px;
+  padding: 8px 14px; color: #dde;
+  background: rgba(25,35,65,0.8);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s, border-color 0.1s;
+}
+.demo-move-btn:active { transform: scale(0.95); }
+.demo-move-btn.active {
+  background: rgba(50,80,160,0.8);
+  border-color: rgba(100,160,255,0.6);
+  color: #fff;
+}
+.demo-move-btn.move-punch { border-color: rgba(57,135,201,0.4); }
+.demo-move-btn.move-kick  { border-color: rgba(191,74,74,0.4); }
+.demo-move-btn.move-block { border-color: rgba(79,103,201,0.4); }
+.demo-move-btn.move-stun  { border-color: rgba(200,150,50,0.4); }
 
 .help { display: none; }
 
@@ -204,4 +224,5 @@ html, body {
 .embedded .btn { font-size: 1rem; padding: 14px 18px; }
 .embedded .title-name { font-size: 2rem; }
 .embedded .title-btn { font-size: 1rem; padding: 12px 28px; }
-.embedded .demo-caption { font-size: 1rem; bottom: 60px; }
+.embedded .demo-move-btn { font-size: 0.75rem; padding: 6px 10px; }
+.embedded .demo-caption-inline { font-size: 0.9rem; }

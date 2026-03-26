@@ -898,8 +898,6 @@ function gameLoop(ts) {
 let gameMode = 'title'; // 'title' | 'play' | 'demo'
 
 const titleScreen = document.getElementById('title-screen');
-const demoCaption = document.getElementById('demo-caption');
-const demoQuitBtn = document.getElementById('demo-quit-btn');
 const playBtn = document.getElementById('play-btn');
 const demoBtn = document.getElementById('demo-btn');
 
@@ -917,9 +915,7 @@ function showTitleScreen() {
   gameMode = 'title';
   world.paused = true;
   titleScreen.classList.remove('hidden');
-  demoCaption.classList.remove('visible');
-  demoCaption.textContent = '';
-  demoQuitBtn.style.display = 'none';
+  demoPanel.style.display = 'none';
   setGameUIVisible(false);
   // Show both fighters idling at default positions for the background
   setFighterVisible('player', true);
@@ -930,7 +926,7 @@ function showTitleScreen() {
 function startPlay() {
   gameMode = 'play';
   titleScreen.classList.add('hidden');
-  demoCaption.classList.remove('visible');
+  demoPanel.style.display = 'none';
   setGameUIVisible(true);
   setFighterVisible('player', true);
   setFighterVisible('cpu', true);
@@ -939,138 +935,161 @@ function startPlay() {
 
 // ─── Demo Mode ──────────────────────────────────────────────────
 
-const DEMO_MOVES = [
-  { caption: 'Idle',             state: State.Idle,             frames: 180 },
-  { caption: 'Walk Forward',     state: State.Move,             frames: 120, axisX: 1 },
-  { caption: 'Walk Backward',    state: State.Move,             frames: 120, axisX: -1 },
-  { caption: 'Punch (Right)',    state: State.PunchStartup,     frames: 90,  chain: 0 },
-  { caption: 'Punch (Left Jab)', state: State.PunchStartup,     frames: 90,  chain: 1 },
-  { caption: 'Uppercut',         state: State.UppercutStartup,  frames: 110, chain: 2 },
-  { caption: 'Kick',             state: State.KickStartup,      frames: 100 },
-  { caption: 'Block',            state: State.Block,            frames: 120 },
-  { caption: 'Hit Stun',         state: State.HitStun,          frames: 100, stun: 30 },
+const DEMO_MOVE_DEFS = {
+  'idle':      { caption: 'Idle',              state: State.Idle },
+  'walk-fwd':  { caption: 'Walk Forward',      state: State.Move,            axisX: 1 },
+  'walk-back': { caption: 'Walk Backward',     state: State.Move,            axisX: -1 },
+  'punch-r':   { caption: 'Punch (Right)',     state: State.PunchStartup,    chain: 0 },
+  'punch-l':   { caption: 'Punch (Left Jab)',  state: State.PunchStartup,    chain: 1 },
+  'uppercut':  { caption: 'Uppercut',          state: State.UppercutStartup, chain: 2 },
+  'kick':      { caption: 'Kick',              state: State.KickStartup },
+  'block':     { caption: 'Block',             state: State.Block },
+  'hitstun':   { caption: 'Hit Stun',          state: State.HitStun,         stun: 30 },
+};
+
+const DEMO_SPEEDS = [
+  { label: '1x',    scale: 1.0 },
+  { label: '0.5x',  scale: 0.5 },
+  { label: '0.25x', scale: 0.25 },
 ];
 
-let demoIndex = 0;
-let demoFrameCounter = 0;
-let demoMoveStarted = false;
+let demoCurrentMove = null;      // key into DEMO_MOVE_DEFS
+let demoSpeedIndex = 0;
+let demoFrameAccum = 0;          // fractional frame accumulator for slow speeds
+
+const demoPanel = document.getElementById('demo-panel');
+const demoCaptionEl = document.getElementById('demo-caption');
+const demoSpeedBtn = document.getElementById('demo-speed-btn');
+const demoMoveBtns = demoPanel.querySelectorAll('.demo-move-btn');
+
+function resetDemoFighter() {
+  const p = world.player;
+  p.axisX = 0; p.axisY = 0;
+  p.blockHeld = false;
+  p.punchChain = 0; p.punchChainTimer = 0; p.punchExhaustion = 0;
+  p.attackCooldown = 0;
+  p.hitFlash = 0;
+  p.x = 640; p.y = 560;
+  p.vx = 0; p.vy = 0;
+  p.impulseX = 0; p.impulseY = 0;
+  p.facing = 1;
+  setState(p, State.Idle);
+}
+
+function triggerDemoMove(moveKey) {
+  const def = DEMO_MOVE_DEFS[moveKey];
+  if (!def) return;
+
+  // Reset fighter to clean state before starting new move
+  resetDemoFighter();
+  demoCurrentMove = moveKey;
+  demoCaptionEl.textContent = def.caption;
+
+  // Highlight active button
+  demoMoveBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.move === moveKey));
+
+  const p = world.player;
+  if (def.state === State.Move) {
+    setState(p, State.Move);
+    p.axisX = def.axisX || 0;
+  } else if (def.state === State.Block) {
+    p.blockHeld = true;
+    setState(p, State.Block);
+  } else if (def.state === State.HitStun) {
+    setState(p, State.HitStun);
+    p.stunFrames = def.stun || 30;
+    p.hitFlash = 6;
+  } else if (def.state === State.PunchStartup) {
+    p.punchChain = def.chain || 0;
+    p.punchChainTimer = 999;
+    setState(p, State.PunchStartup);
+  } else if (def.state === State.UppercutStartup) {
+    p.punchChain = 2;
+    p.punchChainTimer = 999;
+    setState(p, State.UppercutStartup);
+  } else if (def.state === State.KickStartup) {
+    setState(p, State.KickStartup);
+  } else {
+    setState(p, State.Idle);
+  }
+}
 
 function startDemo() {
   gameMode = 'demo';
   titleScreen.classList.add('hidden');
   setGameUIVisible(false);
-  demoQuitBtn.style.display = '';
+  demoPanel.style.display = '';
   setFighterVisible('player', true);
   setFighterVisible('cpu', false);
 
-  // Center the player fighter in the ring
   const p = world.player;
   p.health = CONFIG.healthMax;
   p.roundWins = 0;
-  p.x = 640; p.y = 560;
-  p.vx = 0; p.vy = 0;
-  p.impulseX = 0; p.impulseY = 0;
-  p.facing = 1;
-  p.buffer.length = 0;
-  p.attackCooldown = 0;
-  p.comboCount = 0; p.comboTimer = 0; p.hitFlash = 0;
-  p.punchChain = 0; p.punchChainTimer = 0; p.punchExhaustion = 0;
-  setState(p, State.Idle);
+  resetDemoFighter();
 
-  // Also reset CPU (hidden but still updated by renderer)
   const c = world.cpu;
   c.x = -500; c.y = 560;
   setState(c, State.Idle);
 
   world.paused = false;
-  demoIndex = 0;
-  demoFrameCounter = 0;
-  demoMoveStarted = false;
-
-  demoCaption.classList.add('visible');
-  demoCaption.textContent = DEMO_MOVES[0].caption;
+  demoCurrentMove = 'idle';
+  demoFrameAccum = 0;
+  demoCaptionEl.textContent = 'Idle';
+  demoMoveBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.move === 'idle'));
 }
 
 function stepDemo() {
+  // Speed control: accumulate fractional frames
+  const speed = DEMO_SPEEDS[demoSpeedIndex].scale;
+  demoFrameAccum += speed;
+  if (demoFrameAccum < 1) return; // skip this tick at slow speeds
+  demoFrameAccum -= 1;
+
   const p = world.player;
-  const move = DEMO_MOVES[demoIndex];
+  const def = demoCurrentMove ? DEMO_MOVE_DEFS[demoCurrentMove] : null;
 
-  // Initialize the move on first frame
-  if (!demoMoveStarted) {
-    demoMoveStarted = true;
-    demoCaption.textContent = move.caption;
-    p.axisX = 0; p.axisY = 0;
-
-    if (move.state === State.Idle) {
-      setState(p, State.Idle);
-    } else if (move.state === State.Move) {
-      setState(p, State.Move);
-      p.axisX = move.axisX || 0;
-    } else if (move.state === State.Block) {
-      p.blockHeld = true;
-      setState(p, State.Block);
-    } else if (move.state === State.HitStun) {
-      setState(p, State.HitStun);
-      p.stunFrames = move.stun || 30;
-      p.hitFlash = 6;
-    } else if (move.state === State.PunchStartup) {
-      p.punchChain = move.chain || 0;
-      p.punchChainTimer = 999;
-      setState(p, State.PunchStartup);
-    } else if (move.state === State.UppercutStartup) {
-      p.punchChain = 2;
-      p.punchChainTimer = 999;
-      setState(p, State.UppercutStartup);
-    } else if (move.state === State.KickStartup) {
-      setState(p, State.KickStartup);
-    }
-  }
-
-  // Keep movement axis applied for walk moves
-  if (move.state === State.Move) {
-    p.axisX = move.axisX || 0;
+  // Keep continuous moves active
+  if (def && def.state === State.Move) {
+    p.axisX = def.axisX || 0;
     if (p.state === State.Idle) setState(p, State.Move);
   }
-
-  // Keep block held
-  if (move.state === State.Block) {
+  if (def && def.state === State.Block) {
     p.blockHeld = true;
     if (p.state !== State.Block && p.state !== State.BlockRecovery) {
       setState(p, State.Block);
     }
   }
 
-  // Let attacks play through naturally, then return to idle
-  // Physics and states update normally via the main step
-
-  demoFrameCounter++;
-  if (demoFrameCounter >= move.frames) {
-    // Clean up current move
-    p.axisX = 0; p.axisY = 0;
-    p.blockHeld = false;
-    p.punchChain = 0; p.punchChainTimer = 0; p.punchExhaustion = 0;
-    p.attackCooldown = 0;
-    if (p.state !== State.Idle) setState(p, State.Idle);
-
-    // Re-center fighter
-    p.x = 640; p.y = 560;
-    p.vx = 0; p.vy = 0;
-    p.impulseX = 0; p.impulseY = 0;
-    p.facing = 1;
-    p.hitFlash = 0;
-
-    // Advance to next move (loops continuously)
-    demoIndex = (demoIndex + 1) % DEMO_MOVES.length;
-    demoFrameCounter = 0;
-    demoMoveStarted = false;
+  // When a one-shot move finishes, return to idle and clear highlight
+  if (def && def.state !== State.Idle && def.state !== State.Move && def.state !== State.Block) {
+    if (p.state === State.Idle) {
+      demoCurrentMove = 'idle';
+      demoCaptionEl.textContent = 'Idle';
+      demoMoveBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.move === 'idle'));
+    }
   }
 }
+
+// Wire up demo move buttons
+demoMoveBtns.forEach(btn => {
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    triggerDemoMove(btn.dataset.move);
+  });
+});
+
+// Wire up speed toggle
+demoSpeedBtn.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  demoSpeedIndex = (demoSpeedIndex + 1) % DEMO_SPEEDS.length;
+  demoSpeedBtn.textContent = DEMO_SPEEDS[demoSpeedIndex].label;
+});
 
 // ─── Button Handlers ────────────────────────────────────────────
 
 playBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); startPlay(); });
 demoBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); startDemo(); });
-demoQuitBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); showTitleScreen(); });
+document.getElementById('demo-quit-btn').addEventListener('pointerdown', (e) => { e.preventDefault(); showTitleScreen(); });
 // Also handle keyboard on title screen
 window.addEventListener('keydown', (e) => {
   if (gameMode === 'title') {

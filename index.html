@@ -55,9 +55,25 @@
         <button id="kick-btn" class="btn kick">Kick</button>
       </div>
 
-      <!-- Demo mode caption overlay -->
-      <div id="demo-caption" class="demo-caption"></div>
-      <button id="demo-quit-btn" class="demo-quit-btn" style="display:none;">Back</button>
+      <!-- Demo mode UI -->
+      <div id="demo-panel" class="demo-panel" style="display:none;">
+        <div class="demo-header">
+          <button id="demo-quit-btn" class="demo-quit-btn">Back</button>
+          <div id="demo-caption" class="demo-caption-inline"></div>
+          <button id="demo-speed-btn" class="demo-speed-btn">1x</button>
+        </div>
+        <div class="demo-moves">
+          <button class="demo-move-btn" data-move="idle">Idle</button>
+          <button class="demo-move-btn" data-move="walk-fwd">Walk Fwd</button>
+          <button class="demo-move-btn" data-move="walk-back">Walk Back</button>
+          <button class="demo-move-btn move-punch" data-move="punch-r">Punch R</button>
+          <button class="demo-move-btn move-punch" data-move="punch-l">Punch L</button>
+          <button class="demo-move-btn move-punch" data-move="uppercut">Uppercut</button>
+          <button class="demo-move-btn move-kick" data-move="kick">Kick</button>
+          <button class="demo-move-btn move-block" data-move="block">Block</button>
+          <button class="demo-move-btn move-stun" data-move="hitstun">Hit Stun</button>
+        </div>
+      </div>
 
       <!-- Title screen overlay -->
       <div id="title-screen" class="title-screen">
