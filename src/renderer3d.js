@@ -1053,6 +1053,22 @@ export function resizeRenderer() {
 }
 
 let demoPoseData = null; // { boneName: [x,y,z,w], ... } or null
+const boneCache = {}; // cached bone references by name
+
+function getBone(model, name) {
+  if (boneCache[name]) return boneCache[name];
+  // Try direct lookup first, then traverse with dot-stripped matching
+  let bone = model.getObjectByName(name);
+  if (!bone) {
+    model.traverse(obj => {
+      if (!bone && (obj.name === name || obj.name.replace(/\./g, '') === name)) {
+        bone = obj;
+      }
+    });
+  }
+  if (bone) boneCache[name] = bone;
+  return bone;
+}
 
 export function applyDemoPose(boneMap) { demoPoseData = boneMap; }
 export function clearDemoPose() { demoPoseData = null; }
@@ -1070,7 +1086,7 @@ export function render3d() {
   // Apply demo pose overrides AFTER mixer update (overrides animation)
   if (demoPoseData && fighterModels.player) {
     for (const [boneName, quat] of Object.entries(demoPoseData)) {
-      const bone = fighterModels.player.getObjectByName(boneName);
+      const bone = getBone(fighterModels.player, boneName);
       if (bone) bone.quaternion.set(quat[0], quat[1], quat[2], quat[3]);
     }
   }
