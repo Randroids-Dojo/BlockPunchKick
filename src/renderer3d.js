@@ -1109,12 +1109,22 @@ const ARM_DIRECTIONS = {
 };
 
 // Compose a world-space rotation on top of an idle bone quaternion.
-// Pre-multiply (rot * idle) so the rotation is in the PARENT frame
-// (approximately world space), not the bone's local rotated frame.
+// Pre-multiply (rot * idle) so the rotation is in the PARENT frame.
+// For left arms, mirror the right arm's idle (negate X,Y) to ensure
+// symmetric poses despite the model's asymmetric idle animation.
 function idleCompose(boneName, rx, ry, rz) {
-  const idle = new THREE.Quaternion(...IDLE_BONES[boneName]);
+  let idleQ;
+  if (boneName === 'UpperArmL') {
+    const r = IDLE_BONES.UpperArmR;
+    idleQ = new THREE.Quaternion(-r[0], -r[1], r[2], r[3]);
+  } else if (boneName === 'LowerArmL') {
+    const r = IDLE_BONES.LowerArmR;
+    idleQ = new THREE.Quaternion(-r[0], -r[1], r[2], r[3]);
+  } else {
+    idleQ = new THREE.Quaternion(...IDLE_BONES[boneName]);
+  }
   const rot = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz));
-  return rot.multiply(idle);
+  return rot.multiply(idleQ);
 }
 
 // Build arm overrides from direction names: { right: 'forward', left: 'back' }
