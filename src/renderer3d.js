@@ -384,14 +384,17 @@ function createUppercutClip() {
 
   const uc = {
     // --- Body: dip down then rise up ---
-    Body_dip:     [0.07, 0.00, 0.00, 0.998],    // lean forward (crouch)
-    Body_rise:    [-0.10, 0.00, 0.00, 0.995],    // lean back (rising into punch)
+    Body_dip:     [0.08, 0.00, 0.00, 0.997],    // lean forward (crouch)
+    Body_rise:    [-0.12, 0.00, 0.00, 0.993],    // lean back (rising into punch)
 
     // --- Right arm (uppercut): drops low then swings upward ---
-    UpperArmR_dip:    [0.20, 0.88, -0.08, 0.42],    // arm dropped low
-    LowerArmR_dip:    [0.62, -0.22, 0.18, 0.73],    // fist low, arm bent
-    UpperArmR_rise:   [-0.35, 0.60, 0.35, 0.62],    // arm swung high
-    LowerArmR_rise:   [0.08, -0.12, 0.08, 0.99],    // arm extended upward
+    // Idle UpperArmR is ~108° around Y (arm hanging at side).
+    // Dip: arm drops lower/behind (slightly more Y rotation)
+    // Rise: arm swings UP (much less Y rotation → closer to T-pose → arm above shoulder)
+    UpperArmR_dip:    [0.05, 0.90, -0.10, 0.42],    // arm dropped low, slightly behind
+    LowerArmR_dip:    [0.55, -0.30, 0.15, 0.76],    // fist at hip, arm bent tight
+    UpperArmR_rise:   [0.35, 0.15, 0.10, 0.92],     // arm raised high above shoulder
+    LowerArmR_rise:   [0.08, -0.10, 0.05, 0.99],    // forearm extended straight up
 
     // --- Left arm (guard position) ---
     UpperArmL_guard:  [0.23, -0.77, -0.09, 0.59],
