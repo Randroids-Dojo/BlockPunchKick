@@ -961,6 +961,11 @@ function setupPinchZoom(canvas) {
   }, { passive: false });
 }
 
+export function setFighterVisible(fighterId, visible) {
+  const model = fighterModels[fighterId];
+  if (model) model.visible = visible;
+}
+
 export function triggerScreenShake(intensity) {
   shakeDecay = intensity;
 }

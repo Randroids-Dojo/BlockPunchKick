@@ -110,9 +110,85 @@ html, body {
 .combo-counter.active { opacity: 1; transform: scale(1.15); }
 .combo-counter.fading { opacity: 0.4; transform: scale(0.9); }
 
+/* Title screen overlay */
+.title-screen {
+  position: fixed; inset: 0;
+  z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at 50% 40%, rgba(15,25,60,0.92), rgba(5,5,16,0.97));
+  backdrop-filter: blur(6px);
+  transition: opacity 0.4s ease-out;
+}
+.title-screen.hidden {
+  opacity: 0; pointer-events: none;
+}
+.title-content {
+  text-align: center;
+  animation: titleFadeIn 0.6s ease-out;
+}
+@keyframes titleFadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.title-name {
+  font-size: 2.8rem; font-weight: 900;
+  margin: 0 0 4px;
+  background: linear-gradient(135deg, #5af, #fff, #f88);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: none;
+  letter-spacing: -0.5px;
+}
+.title-sub {
+  font-size: 1rem; font-weight: 400;
+  color: rgba(200,210,240,0.7);
+  margin: 0 0 32px;
+}
+.title-buttons {
+  display: flex; gap: 16px; justify-content: center;
+}
+.title-btn {
+  font-size: 1.2rem; font-weight: 700;
+  border: none; border-radius: 12px;
+  padding: 14px 40px; color: white;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  transition: transform 0.12s, box-shadow 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.title-btn:active { transform: scale(0.95); }
+.title-btn.play {
+  background: linear-gradient(135deg, #1e90ff, #3366cc);
+}
+.title-btn.demo {
+  background: linear-gradient(135deg, #666, #444);
+}
+
+/* Demo caption overlay */
+.demo-caption {
+  position: fixed; bottom: 80px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 150;
+  font-size: 1.3rem; font-weight: 700;
+  color: #fff;
+  text-shadow: 0 0 10px rgba(50,130,255,0.6), 0 2px 6px rgba(0,0,0,0.8);
+  text-align: center;
+  padding: 8px 24px;
+  background: rgba(10,15,35,0.7);
+  border: 1px solid rgba(100,140,220,0.3);
+  border-radius: 10px;
+  pointer-events: none;
+  opacity: 0; transition: opacity 0.3s;
+  white-space: nowrap;
+}
+.demo-caption.visible { opacity: 1; }
+
 .help { display: none; }
 
 /* Embedded in iframe — same layout, just tighten padding */
 .embedded body { background: transparent; }
 .embedded .game-shell { padding: 2px; }
 .embedded .btn { font-size: 1rem; padding: 14px 18px; }
+.embedded .title-name { font-size: 2rem; }
+.embedded .title-btn { font-size: 1rem; padding: 12px 28px; }
+.embedded .demo-caption { font-size: 1rem; bottom: 60px; }
