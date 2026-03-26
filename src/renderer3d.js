@@ -1106,11 +1106,13 @@ const ARM_DIRECTIONS = {
   },
 };
 
-// Compose a rotation on top of an idle bone quaternion
+// Compose a world-space rotation on top of an idle bone quaternion.
+// Pre-multiply (rot * idle) so the rotation is in the PARENT frame
+// (approximately world space), not the bone's local rotated frame.
 function idleCompose(boneName, rx, ry, rz) {
   const idle = new THREE.Quaternion(...IDLE_BONES[boneName]);
   const rot = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz));
-  return idle.multiply(rot);
+  return rot.multiply(idle);
 }
 
 // Build arm overrides from direction names: { right: 'forward', left: 'back' }
