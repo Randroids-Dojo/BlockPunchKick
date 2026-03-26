@@ -1079,17 +1079,20 @@ export function render3d() {
 
   const delta = clock.getDelta() * globalTimeScale;
 
-  // Update animation mixers (skip when KO animation is fully done — freeze on last frame)
-  if (mixers.player && koPhase.player !== 'done') mixers.player.update(delta);
-  if (mixers.cpu && koPhase.cpu !== 'done') mixers.cpu.update(delta);
-
-  // Apply demo pose overrides AFTER mixer update (overrides animation)
-  if (demoPoseData && fighterModels.player) {
+  // When demo pose is active, stop the player mixer so it doesn't fight with bone overrides
+  if (demoPoseData && mixers.player) {
+    mixers.player.stopAllAction();
+    // Set ALL bones to their override values
     for (const [boneName, quat] of Object.entries(demoPoseData)) {
       const bone = getBone(fighterModels.player, boneName);
       if (bone) bone.quaternion.set(quat[0], quat[1], quat[2], quat[3]);
     }
+  } else {
+    // Update animation mixers normally
+    if (mixers.player && koPhase.player !== 'done') mixers.player.update(delta);
   }
+  if (mixers.cpu && koPhase.cpu !== 'done') mixers.cpu.update(delta);
+
 
   // Screen shake
   if (shakeDecay > 0) {
