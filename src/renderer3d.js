@@ -1127,15 +1127,41 @@ function idleCompose(boneName, rx, ry, rz) {
   return rot.multiply(idleQ);
 }
 
-// Build arm overrides from direction names: { right: 'forward', left: 'back' }
-// Only rotates upper arms; lower arms stay at idle (natural hang from elbow).
-function armPose(rightDir, leftDir) {
+// ── Palm Twist Abstraction ───────────────────────────────────────
+// Forearm twist around the arm's length axis, composed on idle LowerArm.
+const PALM_ROTATIONS = {
+  right: {
+    none:  [0, 0, 0],
+    up:    [0, H, 0],
+    down:  [0, -H, 0],
+    out:   [0, Math.PI, 0],
+    in:    [0, 0, 0],
+  },
+  left: {
+    none:  [0, 0, 0],
+    up:    [0, -H, 0],     // Y mirrored
+    down:  [0, H, 0],
+    out:   [0, -Math.PI, 0],
+    in:    [0, 0, 0],
+  },
+};
+
+// Build arm overrides from direction names + optional palm rotation.
+function armPose(rightDir, leftDir, palmRot) {
   const r = ARM_DIRECTIONS.right[rightDir];
   const l = ARM_DIRECTIONS.left[leftDir];
-  return {
+  const overrides = {
     UpperArmR: idleCompose('UpperArmR', ...r),
     UpperArmL: idleCompose('UpperArmL', ...l),
   };
+  // Apply palm rotation to lower arms if specified
+  if (palmRot && palmRot !== 'none') {
+    const pr = PALM_ROTATIONS.right[palmRot];
+    const pl = PALM_ROTATIONS.left[palmRot];
+    if (pr) overrides.LowerArmR = idleCompose('LowerArmR', ...pr);
+    if (pl) overrides.LowerArmL = idleCompose('LowerArmL', ...pl);
+  }
+  return overrides;
 }
 
 // Build a hold-pose AnimationClip. Includes ALL bones so it fully replaces
@@ -1155,30 +1181,47 @@ function createHoldPoseClip(name, armOverrides) {
 let activePoseAction = null;
 let activePoseName = null;
 
-// Register all pose clips with the player mixer. Called during initScene.
-function registerPoseClips(mixer) {
-  // Pose definitions — just English words!
-  const poses = {
-    'tpose':      armPose('out',     'out'),
-    'arms-up':    armPose('up',      'up'),
-    'arms-fwd':   armPose('forward', 'forward'),
-    'arms-back':  armPose('back',    'back'),
-    'rfwd-lback': armPose('forward', 'back'),
-    'lfwd-rback': armPose('back',    'forward'),
-  };
+// Pose direction definitions — just English words
+const POSE_DEFS = {
+  'tpose':      ['out',     'out'],
+  'arms-up':    ['up',      'up'],
+  'arms-fwd':   ['forward', 'forward'],
+  'arms-back':  ['back',    'back'],
+  'rfwd-lback': ['forward', 'back'],
+  'lfwd-rback': ['back',    'forward'],
+};
 
+const PALM_ROT_NAMES = ['none', 'up', 'down', 'out', 'in'];
+
+// Register all pose×rotation clips with the player mixer.
+function registerPoseClips(mixer) {
   const poseActions = {};
-  for (const [poseName, armOverrides] of Object.entries(poses)) {
-    const clip = createHoldPoseClip(`Pose_${poseName}`, armOverrides);
-    const action = mixer.clipAction(clip);
-    action.setLoop(THREE.LoopRepeat);
-    action.clampWhenFinished = true;
-    poseActions[poseName] = action;
+  for (const [poseName, [rDir, lDir]] of Object.entries(POSE_DEFS)) {
+    for (const rot of PALM_ROT_NAMES) {
+      const key = `${poseName}__${rot}`;
+      const overrides = armPose(rDir, lDir, rot);
+      const clip = createHoldPoseClip(`Pose_${key}`, overrides);
+      const action = mixer.clipAction(clip);
+      action.setLoop(THREE.LoopRepeat);
+      action.clampWhenFinished = true;
+      poseActions[key] = action;
+    }
   }
   return poseActions;
 }
 
 let poseActions = {};
+let currentPalmRot = 'none';
+
+function playPoseAction(key) {
+  const action = poseActions[key];
+  if (!action) return;
+  if (activePoseAction) {
+    activePoseAction.crossFadeTo(action, 0.15, false);
+  }
+  action.reset().setEffectiveWeight(1).play();
+  activePoseAction = action;
+}
 
 export function playDemoPose(poseName) {
   // Toggle off if same pose
@@ -1186,17 +1229,21 @@ export function playDemoPose(poseName) {
     stopDemoPose();
     return false;
   }
-  const action = poseActions[poseName];
-  if (!action) return false;
+  const key = `${poseName}__${currentPalmRot}`;
+  if (!poseActions[key]) return false;
 
-  // Crossfade from current animation to pose
-  if (activePoseAction) {
-    activePoseAction.crossFadeTo(action, 0.15, false);
-  }
-  action.reset().setEffectiveWeight(1).play();
-  activePoseAction = action;
+  playPoseAction(key);
   activePoseName = poseName;
   return true;
+}
+
+export function setDemoPalmRotation(rotName) {
+  currentPalmRot = rotName || 'none';
+  // If a pose is active, switch to the version with the new rotation
+  if (activePoseName) {
+    const key = `${activePoseName}__${currentPalmRot}`;
+    playPoseAction(key);
+  }
 }
 
 export function stopDemoPose() {
@@ -1205,6 +1252,7 @@ export function stopDemoPose() {
     activePoseAction = null;
   }
   activePoseName = null;
+  currentPalmRot = 'none';
 }
 
 export function getActivePoseName() { return activePoseName; }

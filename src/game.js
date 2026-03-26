@@ -1,4 +1,4 @@
-import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible, setGlobalTimeScale, playDemoPose, stopDemoPose } from './renderer3d.js';
+import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible, setGlobalTimeScale, playDemoPose, stopDemoPose, setDemoPalmRotation } from './renderer3d.js';
 
 const TICK_RATE = 120;
 const DT = 1 / TICK_RATE;
@@ -1122,9 +1122,18 @@ function selectDemoPose(poseKey) {
 demoPoseBtns.forEach(btn => {
   btn.addEventListener('pointerdown', (e) => { e.preventDefault(); selectDemoPose(btn.dataset.pose); });
 });
-// Palm rotation buttons (TODO: implement via mixer once poses are confirmed working)
+// Palm rotation buttons
+let currentDemoRot = 'none';
 demoRotBtns.forEach(btn => {
-  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); });
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    currentDemoRot = btn.dataset.rot;
+    demoRotBtns.forEach(b => b.classList.toggle('active', b.dataset.rot === currentDemoRot));
+    setDemoPalmRotation(currentDemoRot === 'none' ? 'none' :
+      currentDemoRot === 'palms-up' ? 'up' :
+      currentDemoRot === 'palms-down' ? 'down' :
+      currentDemoRot === 'palms-out' ? 'out' : 'in');
+  });
 });
 
 // ─── Button Handlers ────────────────────────────────────────────
