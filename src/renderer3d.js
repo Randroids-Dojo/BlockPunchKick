@@ -499,6 +499,7 @@ export async function initScene(canvas) {
 
   // Camera controls: scroll/pinch to zoom, right-drag/two-finger rotate
   setupCameraControls(canvas);
+  setupCompass();
 
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setSize(rect.width, rect.height, false);
@@ -676,6 +677,10 @@ export async function initScene(canvas) {
   const playerModel = gltf.scene;
   scene.add(playerModel);
   fighterModels.player = playerModel;
+
+  // Capture rest/bind pose BEFORE any animation is applied.
+  // For RobotExpressive, the rest pose is the idle stance (arms down).
+  captureRestPose(playerModel);
 
   const playerMixer = new THREE.AnimationMixer(playerModel);
   mixers.player = playerMixer;
@@ -1008,6 +1013,12 @@ function setupCameraControls(canvas) {
     e.preventDefault();
     cameraRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraRadius + e.deltaY * 0.02));
   }, { passive: false });
+
+  // Keyboard orbit: Q/E to rotate camera
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'q' || e.key === 'Q') cameraOrbitTarget -= 0.3;
+    if (e.key === 'e' || e.key === 'E') cameraOrbitTarget += 0.3;
+  });
 }
 
 export function setFighterVisible(fighterId, visible) {
@@ -1055,17 +1066,17 @@ export function resizeRenderer() {
   }
 }
 
-// ─── Pose System ─────────────────────────────────────────────────
-// Uses AnimationClips through the mixer (proven approach) instead of
-// fragile direct bone manipulation. Poses are computed at runtime
-// from the model's actual bone transforms.
+// ─── Pose System (Absolute World-Space Targeting) ────────────────
+// Arm poses are defined as world-space directions (e.g., "point right").
+// boneToward() computes the bone-local quaternion to achieve the target,
+// regardless of the model's rest pose orientation.
 //
-// Axis reference (from rest/idle, confirmed through trial):
-//   UpperArm X rotation = forward(+) / back(-)
-//   UpperArm Z rotation = up(+R,-L) / down(-R,+L)
-//   UpperArm Y rotation = outward(-R,+L) / inward(+R,-L)
-//   LowerArm Y rotation = forearm twist (palm rotation)
+// Body and legs use idle animation values to keep a natural stance.
+// Arms use absolute world-space targeting for precise directional control.
+// Per-model profiles allow overriding directions for proportion differences.
 
+// Idle animation bone quaternions (used for body/legs base in poses,
+// and still referenced by kick/punch procedural clips).
 const IDLE_BONES = {
   Body:      [0.0000, 0.0000, -0.0000, 1.0000],
   Head:      [-0.0309, -0.0029, -0.0013, 0.9995],
@@ -1079,56 +1090,137 @@ const IDLE_BONES = {
   LowerLegR: [0.2772, 0.0000, 0.0000, 0.9608],
 };
 
-// ── Arm Direction Abstraction ────────────────────────────────────
-// Maps human-readable directions to Euler rotations composed on idle.
-// Each direction is [rx, ry, rz] applied via idleCompose().
-// These values encode all the model-specific axis knowledge in one place.
-// If a direction is wrong, fix it here and ALL poses using it update.
+// Rest/bind pose bone quaternions — captured from model before animation.
+// Populated by captureRestPose() during init.
+const REST_BONES = {};
+
+function captureRestPose(model) {
+  model.updateMatrixWorld(true);
+  for (const name of Object.keys(IDLE_BONES)) {
+    const bone = model.getObjectByName(name);
+    if (bone) {
+      const q = bone.quaternion;
+      REST_BONES[name] = [q.x, q.y, q.z, q.w];
+    }
+  }
+  // Capture parent world quaternions for arm bones so we can compute
+  // absolute target orientations in local space.
+  for (const name of ['UpperArmR', 'UpperArmL', 'LowerArmR', 'LowerArmL']) {
+    const bone = model.getObjectByName(name);
+    if (bone && bone.parent) {
+      const parentWorldQ = bone.parent.getWorldQuaternion(new THREE.Quaternion());
+      REST_BONES[`${name}_parentWorldQ`] = parentWorldQ;
+      const boneWorldQ = bone.getWorldQuaternion(new THREE.Quaternion());
+      REST_BONES[`${name}_worldQ`] = boneWorldQ;
+    }
+  }
+}
+
+// ── Absolute Target Orientation ──────────────────────────────────
+// Compute the bone-local quaternion that makes the bone's Y-axis point
+// in a desired WORLD direction, preserving the bone's secondary axis
+// (twist) from rest pose.
+//
+// Method: Given desired world direction for bone Y-axis:
+//   1. Get current bone world quaternion (from rest)
+//   2. Find the rotation that takes current Y-axis to desired Y-axis
+//   3. Apply that rotation to the current world quaternion
+//   4. Convert back to local space: localQ = parentWorldQ⁻¹ * worldQ
+function boneToward(boneName, worldDir) {
+  const boneWorldQ = REST_BONES[`${boneName}_worldQ`].clone();
+  const parentWorldQ = REST_BONES[`${boneName}_parentWorldQ`].clone();
+
+  // Current Y-axis in world space
+  const currentY = new THREE.Vector3(0, 1, 0).applyQuaternion(boneWorldQ);
+  const target = worldDir.clone().normalize();
+
+  // Rotation from current Y to target direction
+  const correction = new THREE.Quaternion().setFromUnitVectors(currentY, target);
+
+  // New world quaternion = correction * boneWorldQ
+  const newWorldQ = correction.multiply(boneWorldQ);
+
+  // Convert to local: localQ = parentWorldQ⁻¹ * newWorldQ
+  const parentInv = parentWorldQ.invert();
+  return parentInv.multiply(newWorldQ);
+}
+
+// Apply a parent-space Euler delta on top of a bone's rest local quaternion.
+// Used for forearm twist where we want relative adjustments, not absolute targets.
+function restDelta(boneName, rx, ry, rz) {
+  const restQ = new THREE.Quaternion(...REST_BONES[boneName]);
+  if (rx === 0 && ry === 0 && rz === 0) return restQ;
+  const delta = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz));
+  return delta.multiply(restQ);
+}
 
 const H = Math.PI / 2; // 90 degrees
 
-const UP_ANGLE = Math.PI * 0.85; // ~153° to get arms truly vertical from idle
+// ── Arm Directions ───────────────────────────────────────────────
+// Base directions are pure world-space vectors (model-agnostic).
+// Model profiles can override specific directions to account for
+// proportions (e.g., large head needs wider "up" angle).
 
-const ARM_DIRECTIONS = {
+const BASE_ARM_DIRS = {
   right: {
-    down:    [0, 0, 0],           // idle position (no extra rotation)
-    forward: [H, 0, 0],          // arm swings forward
-    back:    [-H, 0, 0],         // arm swings back
-    up:      [0, 0, UP_ANGLE],   // arm raises above head (needs >90° from idle)
-    out:     [0, -H, 0],         // arm extends to the side (T-pose)
-    in:      [0, H, 0],          // arm crosses toward body
+    out:     [ -1,   0,   0 ],   // T-pose: arm points right
+    down:    [  0,  -1,   0 ],   // arm hangs at side
+    forward: [  0,   0,   1 ],   // arm reaches forward
+    back:    [  0,   0,  -1 ],   // arm reaches back
+    up:      [  0,   1,   0 ],   // arm raised above head
+    in:      [  1,   0,   0 ],   // arm crosses body
   },
   left: {
-    down:    [0, 0, 0],
-    forward: [H, 0, 0],          // X is same for both arms
-    back:    [-H, 0, 0],
-    up:      [0, 0, -UP_ANGLE],  // Z is mirrored
-    out:     [0, H, 0],          // Y is mirrored
-    in:      [0, -H, 0],
+    out:     [  1,   0,   0 ],
+    down:    [  0,  -1,   0 ],
+    forward: [  0,   0,   1 ],
+    back:    [  0,   0,  -1 ],
+    up:      [  0,   1,   0 ],
+    in:      [ -1,   0,   0 ],
   },
 };
 
-// Compose a world-space rotation on top of an idle bone quaternion.
-// Pre-multiply (rot * idle) so the rotation is in the PARENT frame.
-// For left arms, mirror the right arm's idle (negate X,Y) to ensure
-// symmetric poses despite the model's asymmetric idle animation.
-function idleCompose(boneName, rx, ry, rz) {
-  let idleQ;
-  if (boneName === 'UpperArmL') {
-    const r = IDLE_BONES.UpperArmR;
-    idleQ = new THREE.Quaternion(-r[0], -r[1], r[2], r[3]);
-  } else if (boneName === 'LowerArmL') {
-    const r = IDLE_BONES.LowerArmR;
-    idleQ = new THREE.Quaternion(-r[0], -r[1], r[2], r[3]);
-  } else {
-    idleQ = new THREE.Quaternion(...IDLE_BONES[boneName]);
+// ── Model Profiles ───────────────────────────────────────────────
+// Per-model overrides for directions that need adjustment due to
+// model proportions. Only override what differs from the base.
+const MODEL_PROFILES = {
+  'RobotExpressive': {
+    // Large head — "up" needs ~55° outward splay to clear it
+    armDirOverrides: {
+      right: { up: [-1.43, 1, 0] },  // 55° from vertical
+      left:  { up: [ 1.43, 1, 0] },
+    },
+  },
+  // Example: a model with a normal-sized head
+  // 'HumanFighter': {
+  //   armDirOverrides: {
+  //     right: { up: [-0.2, 1, 0] },  // slight splay
+  //     left:  { up: [ 0.2, 1, 0] },
+  //   },
+  // },
+};
+
+const activeModelProfile = 'RobotExpressive';
+
+// Build resolved ARM_WORLD_DIRS by merging base + model overrides.
+function buildArmWorldDirs(profileName) {
+  const profile = MODEL_PROFILES[profileName] || {};
+  const overrides = profile.armDirOverrides || {};
+  const dirs = { right: {}, left: {} };
+  for (const side of ['right', 'left']) {
+    const sideOverrides = overrides[side] || {};
+    for (const [dir, vec] of Object.entries(BASE_ARM_DIRS[side])) {
+      const v = sideOverrides[dir] || vec;
+      dirs[side][dir] = new THREE.Vector3(...v).normalize();
+    }
   }
-  const rot = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz));
-  return rot.multiply(idleQ);
+  return dirs;
 }
 
-// ── Palm Twist Abstraction ───────────────────────────────────────
-// Forearm twist around the arm's length axis, composed on idle LowerArm.
+const ARM_WORLD_DIRS = buildArmWorldDirs(activeModelProfile);
+
+// ── Palm Twist (relative delta on rest forearm) ──────────────────
+// Forearm twist around the arm's length axis.
 const PALM_ROTATIONS = {
   right: {
     none:  [0, 0, 0],
@@ -1139,33 +1231,46 @@ const PALM_ROTATIONS = {
   },
   left: {
     none:  [0, 0, 0],
-    up:    [0, -H, 0],     // Y mirrored
+    up:    [0, -H, 0],
     down:  [0, H, 0],
     out:   [0, -Math.PI, 0],
     in:    [0, 0, 0],
   },
 };
 
+// Forearm defaults per upper-arm direction.
+// 'rest' = keep rest elbow angle (good for horizontal/down poses).
+// 'straight' = identity quaternion (extend along upper arm axis, good for up/forward).
+const FOREARM_MODE = {
+  out: 'rest', down: 'rest', in: 'rest',
+  forward: 'straight', back: 'straight', up: 'straight',
+};
+
 // Build arm overrides from direction names + optional palm rotation.
 function armPose(rightDir, leftDir, palmRot) {
-  const r = ARM_DIRECTIONS.right[rightDir];
-  const l = ARM_DIRECTIONS.left[leftDir];
+  const rForearm = FOREARM_MODE[rightDir] === 'straight'
+    ? new THREE.Quaternion() : new THREE.Quaternion(...REST_BONES.LowerArmR);
+  const lForearm = FOREARM_MODE[leftDir] === 'straight'
+    ? new THREE.Quaternion() : new THREE.Quaternion(...REST_BONES.LowerArmL);
+
   const overrides = {
-    UpperArmR: idleCompose('UpperArmR', ...r),
-    UpperArmL: idleCompose('UpperArmL', ...l),
+    UpperArmR: boneToward('UpperArmR', ARM_WORLD_DIRS.right[rightDir]),
+    UpperArmL: boneToward('UpperArmL', ARM_WORLD_DIRS.left[leftDir]),
+    LowerArmR: rForearm,
+    LowerArmL: lForearm,
   };
-  // Apply palm rotation to lower arms if specified
+  // Apply palm rotation to forearms if specified
   if (palmRot && palmRot !== 'none') {
     const pr = PALM_ROTATIONS.right[palmRot];
     const pl = PALM_ROTATIONS.left[palmRot];
-    if (pr) overrides.LowerArmR = idleCompose('LowerArmR', ...pr);
-    if (pl) overrides.LowerArmL = idleCompose('LowerArmL', ...pl);
+    if (pr) overrides.LowerArmR = restDelta('LowerArmR', ...pr);
+    if (pl) overrides.LowerArmL = restDelta('LowerArmL', ...pl);
   }
   return overrides;
 }
 
-// Build a hold-pose AnimationClip. Includes ALL bones so it fully replaces
-// the current animation (body+legs use idle values, arms use custom values).
+// Build a hold-pose AnimationClip. Body/legs use idle values for natural stance,
+// arms use the provided overrides (rest-based).
 function createHoldPoseClip(name, armOverrides) {
   const bones = { ...IDLE_BONES, ...armOverrides };
   const tracks = [];
@@ -1261,6 +1366,111 @@ export function getActivePoseName() { return activePoseName; }
 export function applyDemoPose(boneMap) { /* no-op, replaced by playDemoPose */ }
 export function clearDemoPose() { stopDemoPose(); }
 
+// ─── Camera Orbit Compass Widget ─────────────────────────────────
+let compassCanvas = null;
+let compassCtx = null;
+let compassDragging = false;
+
+function setupCompass() {
+  compassCanvas = document.getElementById('camera-compass');
+  if (!compassCanvas) return;
+  compassCtx = compassCanvas.getContext('2d');
+
+  // Pointer events for drag-to-rotate
+  const getAngleFromPointer = (e) => {
+    const rect = compassCanvas.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    // atan2 gives angle from center; map to camera orbit convention
+    return Math.atan2(e.clientX - cx, -(e.clientY - cy));
+  };
+
+  compassCanvas.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    compassCanvas.setPointerCapture(e.pointerId);
+    compassDragging = true;
+    cameraOrbitTarget = getAngleFromPointer(e);
+  });
+
+  compassCanvas.addEventListener('pointermove', (e) => {
+    if (!compassDragging) return;
+    cameraOrbitTarget = getAngleFromPointer(e);
+  });
+
+  const endDrag = () => { compassDragging = false; };
+  compassCanvas.addEventListener('pointerup', endDrag);
+  compassCanvas.addEventListener('pointercancel', endDrag);
+}
+
+function drawCompass() {
+  if (!compassCtx || compassCanvas.style.display === 'none') return;
+  const w = compassCanvas.width;
+  const h = compassCanvas.height;
+  const cx = w / 2;
+  const cy = h / 2;
+  const r = w / 2 - 4;  // outer radius with padding
+  const ctx = compassCtx;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Outer ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(8, 12, 28, 0.7)';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(100, 130, 200, 0.5)';
+  ctx.stroke();
+
+  // Tick marks at cardinal directions
+  for (let i = 0; i < 8; i++) {
+    const angle = (i * Math.PI) / 4;
+    const isMajor = i % 2 === 0;
+    const innerR = isMajor ? r - 10 : r - 6;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.sin(angle) * innerR, cy - Math.cos(angle) * innerR);
+    ctx.lineTo(cx + Math.sin(angle) * (r - 2), cy - Math.cos(angle) * (r - 2));
+    ctx.lineWidth = isMajor ? 2 : 1;
+    ctx.strokeStyle = isMajor ? 'rgba(180, 200, 240, 0.6)' : 'rgba(120, 150, 200, 0.3)';
+    ctx.stroke();
+  }
+
+  // Camera direction indicator (triangle pointing outward)
+  const angle = cameraOrbitAngle;
+  const triR = r - 14;     // distance from center to triangle tip
+  const triSize = 10;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);  // rotate so 0 angle = top
+
+  // Filled triangle pointing up (outward in rotated frame)
+  ctx.beginPath();
+  ctx.moveTo(0, -triR);                        // tip
+  ctx.lineTo(-triSize * 0.6, -triR + triSize); // bottom-left
+  ctx.lineTo(triSize * 0.6, -triR + triSize);  // bottom-right
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(90, 170, 255, 0.9)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(140, 200, 255, 0.8)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Small center dot
+  ctx.beginPath();
+  ctx.arc(0, 0, 3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(160, 190, 240, 0.5)';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+export function showCompass(visible, abovePanel = false) {
+  if (!compassCanvas) return;
+  compassCanvas.style.display = visible ? 'block' : 'none';
+  compassCanvas.classList.toggle('above-panel', abovePanel);
+}
+
 export function render3d() {
   if (!renderer) return;
   resizeRenderer();
@@ -1270,8 +1480,6 @@ export function render3d() {
   // Update animation mixers normally
   if (mixers.player && koPhase.player !== 'done') mixers.player.update(delta);
   if (mixers.cpu && koPhase.cpu !== 'done' && fighterModels.cpu?.visible !== false) mixers.cpu.update(delta);
-
-
 
   // Screen shake
   if (shakeDecay > 0) {
@@ -1303,4 +1511,5 @@ export function render3d() {
   camera.lookAt(cameraLookAt);
 
   renderer.render(scene, camera);
+  drawCompass();
 }

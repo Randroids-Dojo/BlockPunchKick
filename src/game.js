@@ -1,4 +1,4 @@
-import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible, setGlobalTimeScale, playDemoPose, stopDemoPose, setDemoPalmRotation } from './renderer3d.js';
+import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible, setGlobalTimeScale, playDemoPose, stopDemoPose, setDemoPalmRotation, showCompass } from './renderer3d.js';
 
 const TICK_RATE = 120;
 const DT = 1 / TICK_RATE;
@@ -923,6 +923,7 @@ function showTitleScreen() {
   currentDemoPose = null;
   stopDemoPose();
   setGameUIVisible(false);
+  showCompass(false);
   // Show both fighters idling at default positions for the background
   setFighterVisible('player', true);
   setFighterVisible('cpu', true);
@@ -934,6 +935,7 @@ function startPlay() {
   titleScreen.classList.add('hidden');
   demoPanel.style.display = 'none';
   setGameUIVisible(true);
+  showCompass(true);
   setFighterVisible('player', true);
   setFighterVisible('cpu', true);
   resetMatch();
@@ -1048,6 +1050,7 @@ function startDemo() {
   setGlobalTimeScale(DEMO_SPEEDS[demoSpeedIndex].scale);
   demoCaptionEl.textContent = 'Idle';
   demoMoveBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.move === 'idle'));
+  showCompass(true, true);
 }
 
 function stepDemo() {

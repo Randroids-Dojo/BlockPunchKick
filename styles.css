@@ -240,6 +240,20 @@ html, body {
 .demo-move-btn.move-block { border-color: rgba(79,103,201,0.4); }
 .demo-move-btn.move-stun  { border-color: rgba(200,150,50,0.4); }
 
+/* Camera orbit compass widget */
+.camera-compass {
+  position: fixed;
+  bottom: 24px; left: 16px;
+  width: 80px; height: 80px;
+  z-index: 160;
+  cursor: grab;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  display: none;  /* shown via JS */
+}
+.camera-compass.above-panel { bottom: calc(25vh + 12px); }
+.camera-compass:active { cursor: grabbing; }
+
 .help { display: none; }
 
 /* Embedded in iframe — same layout, just tighten padding */
