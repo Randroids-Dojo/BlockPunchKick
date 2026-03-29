@@ -936,9 +936,6 @@ export function updateFighter(fighterId, fighter) {
       if (flashIntensity > 0) {
         mesh.material.emissive = mesh.material.emissive || new THREE.Color();
         mesh.material.emissive.setHex(0xffffff);
-      } else {
-        // Clear emissive so the white doesn't stay stuck (e.g. after KO)
-        mesh.material.emissiveIntensity = 0;
       }
     }
   }
@@ -1053,7 +1050,7 @@ export function updateDynamicCamera(player, cpu) {
   dynamicCameraX = (pWorld.x + cWorld.x) / 2;
 }
 
-export function resizeRenderer() {
+function resizeRenderer() {
   if (!renderer || !camera) return;
   const canvas = renderer.domElement;
   const rect = canvas.getBoundingClientRect();
@@ -1116,6 +1113,11 @@ function captureRestPose(model) {
   }
 }
 
+function getRestQuaternion(boneName) {
+  const rest = REST_BONES[boneName];
+  return rest ? new THREE.Quaternion(...rest) : new THREE.Quaternion();
+}
+
 // ── Absolute Target Orientation ──────────────────────────────────
 // Compute the bone-local quaternion that makes the bone's Y-axis point
 // in a desired WORLD direction, preserving the bone's secondary axis
@@ -1127,8 +1129,9 @@ function captureRestPose(model) {
 //   3. Apply that rotation to the current world quaternion
 //   4. Convert back to local space: localQ = parentWorldQ⁻¹ * worldQ
 function boneToward(boneName, worldDir) {
-  const boneWorldQ = REST_BONES[`${boneName}_worldQ`].clone();
-  const parentWorldQ = REST_BONES[`${boneName}_parentWorldQ`].clone();
+  const boneWorldQ = REST_BONES[`${boneName}_worldQ`];
+  const parentWorldQ = REST_BONES[`${boneName}_parentWorldQ`];
+  if (!boneWorldQ || !parentWorldQ || !worldDir) return getRestQuaternion(boneName);
 
   // Current Y-axis in world space
   const currentY = new THREE.Vector3(0, 1, 0).applyQuaternion(boneWorldQ);
@@ -1141,14 +1144,14 @@ function boneToward(boneName, worldDir) {
   const newWorldQ = correction.multiply(boneWorldQ);
 
   // Convert to local: localQ = parentWorldQ⁻¹ * newWorldQ
-  const parentInv = parentWorldQ.invert();
+  const parentInv = parentWorldQ.clone().invert();
   return parentInv.multiply(newWorldQ);
 }
 
 // Apply a parent-space Euler delta on top of a bone's rest local quaternion.
 // Used for forearm twist where we want relative adjustments, not absolute targets.
 function restDelta(boneName, rx, ry, rz) {
-  const restQ = new THREE.Quaternion(...REST_BONES[boneName]);
+  const restQ = getRestQuaternion(boneName);
   if (rx === 0 && ry === 0 && rz === 0) return restQ;
   const delta = new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz));
   return delta.multiply(restQ);
@@ -1249,9 +1252,9 @@ const FOREARM_MODE = {
 // Build arm overrides from direction names + optional palm rotation.
 function armPose(rightDir, leftDir, palmRot) {
   const rForearm = FOREARM_MODE[rightDir] === 'straight'
-    ? new THREE.Quaternion() : new THREE.Quaternion(...REST_BONES.LowerArmR);
+    ? new THREE.Quaternion() : getRestQuaternion('LowerArmR');
   const lForearm = FOREARM_MODE[leftDir] === 'straight'
-    ? new THREE.Quaternion() : new THREE.Quaternion(...REST_BONES.LowerArmL);
+    ? new THREE.Quaternion() : getRestQuaternion('LowerArmL');
 
   const overrides = {
     UpperArmR: boneToward('UpperArmR', ARM_WORLD_DIRS.right[rightDir]),
@@ -1360,21 +1363,24 @@ export function stopDemoPose() {
   currentPalmRot = 'none';
 }
 
-export function getActivePoseName() { return activePoseName; }
-
-// Legacy aliases for game.js compatibility
-export function applyDemoPose(boneMap) { /* no-op, replaced by playDemoPose */ }
-export function clearDemoPose() { stopDemoPose(); }
-
 // ─── Camera Orbit Compass Widget ─────────────────────────────────
 let compassCanvas = null;
 let compassCtx = null;
 let compassDragging = false;
+let compassVisible = false;
+let compassAbovePanel = false;
+
+function applyCompassVisibility() {
+  if (!compassCanvas) return;
+  compassCanvas.style.display = compassVisible ? 'block' : 'none';
+  compassCanvas.classList.toggle('above-panel', compassAbovePanel);
+}
 
 function setupCompass() {
   compassCanvas = document.getElementById('camera-compass');
   if (!compassCanvas) return;
   compassCtx = compassCanvas.getContext('2d');
+  applyCompassVisibility();
 
   // Pointer events for drag-to-rotate
   const getAngleFromPointer = (e) => {
@@ -1403,7 +1409,7 @@ function setupCompass() {
 }
 
 function drawCompass() {
-  if (!compassCtx || compassCanvas.style.display === 'none') return;
+  if (!compassCtx || !compassVisible) return;
   const w = compassCanvas.width;
   const h = compassCanvas.height;
   const cx = w / 2;
@@ -1466,9 +1472,9 @@ function drawCompass() {
 }
 
 export function showCompass(visible, abovePanel = false) {
-  if (!compassCanvas) return;
-  compassCanvas.style.display = visible ? 'block' : 'none';
-  compassCanvas.classList.toggle('above-panel', abovePanel);
+  compassVisible = visible;
+  compassAbovePanel = visible && abovePanel;
+  applyCompassVisibility();
 }
 
 export function render3d() {

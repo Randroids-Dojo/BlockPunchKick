@@ -100,14 +100,15 @@ const keyMap = {
   ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right', ArrowUp: 'up', w: 'up', ArrowDown: 'down', s: 'down',
   k: 'punch', l: 'kick',
 };
-window.addEventListener('keydown', (e) => setInput(e.key, true));
-window.addEventListener('keyup', (e) => setInput(e.key, false));
-function setInput(key, val) {
-  const mapped = keyMap[key] ?? keyMap[key.toLowerCase()];
+window.addEventListener('keydown', (e) => setInput(e, true));
+window.addEventListener('keyup', (e) => setInput(e, false));
+function setInput(event, val) {
+  const mapped = keyMap[event.key] ?? keyMap[event.key.toLowerCase()];
   if (!mapped) return;
+  event.preventDefault();
   if (mapped === 'punch' || mapped === 'kick') {
-    // Only register on key down, ignore repeats/holds
-    if (val) world.input[mapped] = true;
+    // Only register fresh key presses, not browser auto-repeat.
+    if (val && !event.repeat) world.input[mapped] = true;
   } else world.input[mapped] = val;
 }
 
@@ -185,6 +186,24 @@ const sbb = {
   input2: { left: false, right: false, up: false, down: false, punch: false, kick: false },
 };
 
+let titleReturnTimeout = null;
+
+function resetInputState(input) {
+  Object.keys(input).forEach((key) => { input[key] = false; });
+}
+
+function resetAllInputs() {
+  resetInputState(world.input);
+  resetInputState(sbb.input2);
+}
+
+function clearTitleReturnTimeout() {
+  if (titleReturnTimeout !== null) {
+    clearTimeout(titleReturnTimeout);
+    titleReturnTimeout = null;
+  }
+}
+
 /** Mirror of simInputForPlayer() but drives world.cpu from sbb.input2. */
 function simInputForPlayer2() {
   const p = world.cpu, c = world.player;
@@ -222,11 +241,6 @@ function simInputForPlayer2() {
     }
     if (!p.blockHeld && p.state === State.Block) setState(p, State.BlockRecovery);
   }
-}
-
-function applyMovementInput(input, fighter, durationMs) {
-  input.left = true;
-  setTimeout(() => { input.left = false; }, durationMs);
 }
 
 window.addEventListener('message', (e) => {
@@ -719,7 +733,11 @@ function resetRoundIfNeeded() {
     ui.announcement.textContent = `${p.roundWins > c.roundWins ? 'Player' : 'CPU'} Wins Match!`;
     world.paused = true;
     // Return to title screen after a delay
-    setTimeout(showTitleScreen, 2500);
+    clearTitleReturnTimeout();
+    titleReturnTimeout = window.setTimeout(() => {
+      titleReturnTimeout = null;
+      showTitleScreen();
+    }, 2500);
     return;
   }
 
@@ -738,6 +756,8 @@ function resetRoundIfNeeded() {
 }
 
 function resetMatch() {
+  clearTitleReturnTimeout();
+  resetAllInputs();
   world.round = 1;
   world.timer = CONFIG.roundSeconds;
   world.frame = 0;
@@ -794,16 +814,16 @@ function updateComboDisplay(el, comboCount, comboTimer) {
 }
 
 function drawRoundDots(node, wins, type) {
-  if (node.childElementCount === CONFIG.roundWinsNeeded) {
-    [...node.children].forEach((dot, idx) => dot.className = `round-dot ${idx < wins ? `won ${type}` : ''}`);
-    return;
+  if (node.childElementCount !== CONFIG.roundWinsNeeded) {
+    node.replaceChildren(...Array.from({ length: CONFIG.roundWinsNeeded }, () => {
+      const dot = document.createElement('div');
+      dot.className = 'round-dot';
+      return dot;
+    }));
   }
-  node.innerHTML = '';
-  for (let i = 0; i < CONFIG.roundWinsNeeded; i++) {
-    const dot = document.createElement('div');
-    dot.className = `round-dot ${i < wins ? `won ${type}` : ''}`;
-    node.append(dot);
-  }
+  [...node.children].forEach((dot, idx) => {
+    dot.className = `round-dot ${idx < wins ? `won ${type}` : ''}`;
+  });
 }
 
 function render() {
@@ -914,23 +934,27 @@ function setGameUIVisible(visible) {
 }
 
 function showTitleScreen() {
+  clearTitleReturnTimeout();
+  resetAllInputs();
   gameMode = 'title';
-  world.paused = true;
   titleScreen.classList.remove('hidden');
   demoPanel.style.display = 'none';
   setGlobalTimeScale(1.0);
-  demoSpeedIndex = 0;
-  currentDemoPose = null;
   stopDemoPose();
+  resetDemoUiState();
   setGameUIVisible(false);
   showCompass(false);
   // Show both fighters idling at default positions for the background
   setFighterVisible('player', true);
   setFighterVisible('cpu', true);
   resetMatch();
+  world.paused = true;
 }
 
 function startPlay() {
+  clearTitleReturnTimeout();
+  resetAllInputs();
+  resetDemoUiState();
   gameMode = 'play';
   titleScreen.classList.add('hidden');
   demoPanel.style.display = 'none';
@@ -963,6 +987,8 @@ const DEMO_SPEEDS = [
 
 let demoCurrentMove = null;      // key into DEMO_MOVE_DEFS
 let demoSpeedIndex = 0;
+let currentDemoPose = null;
+let currentDemoRot = 'none';
 
 const demoPanel = document.getElementById('demo-panel');
 const demoCaptionEl = document.getElementById('demo-caption');
@@ -990,7 +1016,7 @@ function triggerDemoMove(moveKey) {
   // Clear any active pose
   currentDemoPose = null;
   stopDemoPose();
-  demoPoseBtns.forEach(btn => btn.classList.remove('active'));
+  setActiveDemoPose(null);
 
   // Reset fighter to clean state before starting new move
   resetDemoFighter();
@@ -998,7 +1024,7 @@ function triggerDemoMove(moveKey) {
   demoCaptionEl.textContent = def.caption;
 
   // Highlight active button
-  demoMoveBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.move === moveKey));
+  setActiveDemoMove(moveKey);
 
   const p = world.player;
   if (def.state === State.Move) {
@@ -1027,6 +1053,10 @@ function triggerDemoMove(moveKey) {
 }
 
 function startDemo() {
+  clearTitleReturnTimeout();
+  resetAllInputs();
+  stopDemoPose();
+  resetDemoUiState();
   gameMode = 'demo';
   titleScreen.classList.add('hidden');
   setGameUIVisible(false);
@@ -1046,10 +1076,7 @@ function startDemo() {
   updateFighter('cpu', c);
 
   world.paused = false;
-  demoCurrentMove = 'idle';
   setGlobalTimeScale(DEMO_SPEEDS[demoSpeedIndex].scale);
-  demoCaptionEl.textContent = 'Idle';
-  demoMoveBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.move === 'idle'));
   showCompass(true, true);
 }
 
@@ -1074,7 +1101,7 @@ function stepDemo() {
     if (p.state === State.Idle) {
       demoCurrentMove = 'idle';
       demoCaptionEl.textContent = 'Idle';
-      demoMoveBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.move === 'idle'));
+      setActiveDemoMove('idle');
     }
   }
 }
@@ -1099,22 +1126,45 @@ demoSpeedBtn.addEventListener('pointerdown', (e) => {
 // Uses the AnimationClip-based pose system from renderer3d.js.
 // Poses are played through the mixer (proven approach), not direct bone manipulation.
 
-let currentDemoPose = null;
-
 const demoPoseBtns = demoPanel.querySelectorAll('.demo-pose-btn');
 const demoRotBtns = demoPanel.querySelectorAll('.demo-rot-btn');
+
+function setActiveDemoMove(moveKey) {
+  demoMoveBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.move === moveKey));
+}
+
+function setActiveDemoPose(poseKey) {
+  demoPoseBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.pose === poseKey));
+}
+
+function setActiveDemoRotation(rotKey) {
+  demoRotBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.rot === rotKey));
+}
+
+function resetDemoUiState() {
+  demoCurrentMove = 'idle';
+  demoSpeedIndex = 0;
+  currentDemoPose = null;
+  currentDemoRot = 'none';
+  demoCaptionEl.textContent = 'Idle';
+  demoSpeedBtn.textContent = DEMO_SPEEDS[0].label;
+  setActiveDemoMove('idle');
+  setActiveDemoPose(null);
+  setActiveDemoRotation('none');
+  setDemoPalmRotation('none');
+}
 
 function selectDemoPose(poseKey) {
   // Clear any active move
   demoCurrentMove = null;
   demoCaptionEl.textContent = '';
-  demoMoveBtns.forEach(btn => btn.classList.remove('active'));
+  setActiveDemoMove(null);
   resetDemoFighter();
 
   const wasActive = playDemoPose(poseKey); // toggles off if same
   currentDemoPose = wasActive ? poseKey : null;
 
-  demoPoseBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.pose === currentDemoPose));
+  setActiveDemoPose(currentDemoPose);
   const label = currentDemoPose
     ? demoPanel.querySelector(`[data-pose="${currentDemoPose}"]`)?.textContent
     : '';
@@ -1126,12 +1176,11 @@ demoPoseBtns.forEach(btn => {
   btn.addEventListener('pointerdown', (e) => { e.preventDefault(); selectDemoPose(btn.dataset.pose); });
 });
 // Palm rotation buttons
-let currentDemoRot = 'none';
 demoRotBtns.forEach(btn => {
   btn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     currentDemoRot = btn.dataset.rot;
-    demoRotBtns.forEach(b => b.classList.toggle('active', b.dataset.rot === currentDemoRot));
+    setActiveDemoRotation(currentDemoRot);
     setDemoPalmRotation(currentDemoRot === 'none' ? 'none' :
       currentDemoRot === 'palms-up' ? 'up' :
       currentDemoRot === 'palms-down' ? 'down' :
@@ -1147,7 +1196,10 @@ document.getElementById('demo-quit-btn').addEventListener('pointerdown', (e) => 
 // Also handle keyboard on title screen
 window.addEventListener('keydown', (e) => {
   if (gameMode === 'title') {
-    if (e.key === 'Enter' || e.key === ' ') startPlay();
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      startPlay();
+    }
     if (e.key === 'd' || e.key === 'D') startDemo();
   }
   if (gameMode === 'demo') {
