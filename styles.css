@@ -160,6 +160,9 @@ html, body {
 .title-btn.play {
   background: linear-gradient(135deg, #1e90ff, #3366cc);
 }
+.title-btn.vs {
+  background: linear-gradient(135deg, #e64a19, #bf360c);
+}
 .title-btn.demo {
   background: linear-gradient(135deg, #666, #444);
 }

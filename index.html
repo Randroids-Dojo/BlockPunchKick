@@ -18,7 +18,7 @@
     <main class="game-shell">
       <header class="hud">
         <section class="hud-side" aria-label="Player health">
-          <div class="health-label">Player</div>
+          <div id="p1-label" class="health-label">Player</div>
           <div class="health-track"><div id="p1-health" class="health-fill player"></div></div>
           <div id="p1-rounds" class="round-dots"></div>
         </section>
@@ -30,7 +30,7 @@
         </section>
 
         <section class="hud-side" aria-label="CPU health">
-          <div class="health-label">CPU</div>
+          <div id="p2-label" class="health-label">CPU</div>
           <div class="health-track"><div id="p2-health" class="health-fill cpu"></div></div>
           <div id="p2-rounds" class="round-dots"></div>
         </section>
@@ -105,6 +105,7 @@
           <p class="title-sub">A 1-on-1 Fighting Game</p>
           <div class="title-buttons">
             <button id="play-btn" class="title-btn play">Play</button>
+            <button id="vs-btn" class="title-btn vs">VS</button>
             <button id="demo-btn" class="title-btn demo">Demo</button>
           </div>
         </div>
@@ -112,7 +113,9 @@
 
       <details class="help">
         <summary>Controls</summary>
-        <p>Move: A/D or ←/→ (W/S or ↑/↓ for vertical lane). Block: hold back when enemy attacks. Punch: K. Kick: L. Combo: land a hit then cancel into the other attack!</p>
+        <p><strong>P1:</strong> Move: A/D (W/S vertical). Punch: K. Kick: L.<br>
+        <strong>P2 (VS mode):</strong> Move: ←/→ (↑/↓ vertical). Punch: ;. Kick: '.<br>
+        Block: hold back when enemy attacks. Combo: land a hit then cancel into the other attack!</p>
       </details>
     </main>
 
