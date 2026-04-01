@@ -947,6 +947,7 @@ function setupCameraControls(canvas) {
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     cameraRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraRadius + e.deltaY * 0.02));
+    dynamicZoomTarget = cameraRadius;  // persist manual zoom
   }, { passive: false });
 
   // Keyboard orbit: Q/E to rotate camera
@@ -1362,7 +1363,9 @@ function setupZoomSlider() {
     const rect = slider.getBoundingClientRect();
     // Top = zoomed in (MIN_ZOOM), bottom = zoomed out (MAX_ZOOM)
     const t = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    cameraRadius = MIN_ZOOM + t * (MAX_ZOOM - MIN_ZOOM);
+    const zoom = MIN_ZOOM + t * (MAX_ZOOM - MIN_ZOOM);
+    cameraRadius = zoom;
+    dynamicZoomTarget = zoom;  // persist — prevent dynamic zoom from overriding
   };
 
   slider.addEventListener('pointerdown', (e) => {
