@@ -947,7 +947,8 @@ function setupCameraControls(canvas) {
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     cameraRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraRadius + e.deltaY * 0.02));
-    dynamicZoomTarget = cameraRadius;  // persist manual zoom
+    dynamicZoomTarget = cameraRadius;
+    manualZoom = true;
   }, { passive: false });
 
   // Keyboard orbit: Q/E to rotate camera
@@ -956,6 +957,8 @@ function setupCameraControls(canvas) {
     if (e.key === 'e' || e.key === 'E') cameraOrbitTarget += 0.3;
   });
 }
+
+export function resetManualZoom() { manualZoom = false; }
 
 export function setFighterVisible(fighterId, visible) {
   const model = fighterModels[fighterId];
@@ -968,6 +971,8 @@ export function setGlobalTimeScale(scale) { globalTimeScale = scale; }
 export function triggerScreenShake(intensity) {
   shakeDecay = intensity;
 }
+
+let manualZoom = false;  // true when user has overridden zoom via slider or scroll
 
 // Update dynamic camera zoom target based on fighter positions (game coords)
 export function updateDynamicCamera(player, cpu) {
@@ -982,8 +987,10 @@ export function updateDynamicCamera(player, cpu) {
   const ZOOM_CLOSE = isEmbedded ? 18 : 14;   // dramatic close-up
   const ZOOM_FAR = isEmbedded ? 32 : 26;     // wide shot when far
 
-  const t = Math.max(0, Math.min(1, (dx - CLOSE_DIST) / (FAR_DIST - CLOSE_DIST)));
-  dynamicZoomTarget = ZOOM_CLOSE + t * (ZOOM_FAR - ZOOM_CLOSE);
+  if (!manualZoom) {
+    const t = Math.max(0, Math.min(1, (dx - CLOSE_DIST) / (FAR_DIST - CLOSE_DIST)));
+    dynamicZoomTarget = ZOOM_CLOSE + t * (ZOOM_FAR - ZOOM_CLOSE);
+  }
 
   // Track midpoint between fighters horizontally
   dynamicCameraX = (pWorld.x + cWorld.x) / 2;
@@ -1365,7 +1372,8 @@ function setupZoomSlider() {
     const t = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
     const zoom = MIN_ZOOM + t * (MAX_ZOOM - MIN_ZOOM);
     cameraRadius = zoom;
-    dynamicZoomTarget = zoom;  // persist — prevent dynamic zoom from overriding
+    dynamicZoomTarget = zoom;
+    manualZoom = true;
   };
 
   slider.addEventListener('pointerdown', (e) => {

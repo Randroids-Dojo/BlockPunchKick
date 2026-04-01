@@ -1,4 +1,4 @@
-import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible, setGlobalTimeScale, playDemoPose, stopDemoPose, setDemoPalmRotation, showCompass } from './renderer3d.js';
+import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible, setGlobalTimeScale, playDemoPose, stopDemoPose, setDemoPalmRotation, showCompass, resetManualZoom } from './renderer3d.js';
 
 const TICK_RATE = 120;
 const DT = 1 / TICK_RATE;
@@ -1066,6 +1066,7 @@ function showTitleScreen() {
   clearTitleReturnTimeout();
   resetAllInputs();
   vsMode = false;
+  resetManualZoom();
   if (p1Label) p1Label.textContent = 'Player';
   if (p2Label) p2Label.textContent = 'CPU';
   gameMode = 'title';
