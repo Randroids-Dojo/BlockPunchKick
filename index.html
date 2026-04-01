@@ -55,15 +55,20 @@
         <button id="kick-btn" class="btn kick">Kick</button>
       </div>
 
-      <!-- P2 mobile controls (VS mode only) -->
-      <div id="stick-zone-p2" class="stick-zone p2-stick-zone" style="display:none;">
-        <div id="stick-p2" class="stick hidden">
-          <div class="stick-knob p2-knob"></div>
+      <!-- VS mode touch pads — one per player edge, each with fixed joystick + tap zones -->
+      <div id="vs-pad-p1" class="vs-pad vs-pad-left" style="display:none;">
+        <div class="vs-tap-label punch-label">PUNCH</div>
+        <div class="vs-stick">
+          <div class="vs-knob p1-knob"></div>
         </div>
+        <div class="vs-tap-label kick-label">KICK</div>
       </div>
-      <div id="p2-buttons" class="action-buttons-fixed p2-buttons" style="display:none;">
-        <button id="punch-btn-p2" class="btn punch">Punch</button>
-        <button id="kick-btn-p2" class="btn kick">Kick</button>
+      <div id="vs-pad-p2" class="vs-pad vs-pad-right" style="display:none;">
+        <div class="vs-tap-label punch-label">PUNCH</div>
+        <div class="vs-stick">
+          <div class="vs-knob p2-knob"></div>
+        </div>
+        <div class="vs-tap-label kick-label">KICK</div>
       </div>
 
       <!-- Camera orbit compass widget -->

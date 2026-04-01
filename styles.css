@@ -248,20 +248,49 @@ html, body {
 .camera-compass.above-panel { bottom: calc(25vh + 12px); }
 .camera-compass:active { cursor: grabbing; }
 
-/* VS mode mobile layout — split screen for two players */
-.vs-mobile .stick-zone { width: 30%; }
-.vs-mobile .p1-buttons { right: auto; left: 30%; bottom: 24px; }
-.p2-stick-zone {
-  position: fixed; left: auto; right: 0; top: 0;
-  width: 30%; height: 100%;
+/* VS mode touch pads — fixed joystick per edge with tap-above/below for attacks */
+.vs-pad {
+  position: fixed; top: 0;
+  width: 22%; height: 100%;
   z-index: 100; touch-action: none;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 12px;
+  pointer-events: auto;
 }
-.p2-buttons {
-  position: fixed; right: 30%; bottom: 24px;
-  display: flex; flex-direction: column; gap: 10px;
-  z-index: 100;
+.vs-pad-left { left: 0; }
+.vs-pad-right { right: 0; }
+.vs-tap-label {
+  font-size: 0.65rem; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: rgba(200,210,240,0.25);
+  pointer-events: none;
+  transition: color 0.1s, text-shadow 0.1s;
 }
-.p2-knob { background: rgba(255,140,120,0.8); }
+.vs-tap-label.flash-punch {
+  color: rgba(100,180,255,0.9);
+  text-shadow: 0 0 10px rgba(100,180,255,0.5);
+}
+.vs-tap-label.flash-kick {
+  color: rgba(255,100,80,0.9);
+  text-shadow: 0 0 10px rgba(255,100,80,0.5);
+}
+.vs-stick {
+  width: 100px; height: 100px; border-radius: 50%;
+  border: 2px solid rgba(101,129,206,0.4);
+  background: rgba(31,47,90,0.35);
+  position: relative;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+.vs-knob {
+  width: 44px; height: 44px; border-radius: 50%;
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%,-50%);
+  transition: transform 60ms ease-out;
+}
+.p1-knob { background: rgba(126,160,255,0.7); }
+.p2-knob { background: rgba(255,140,120,0.7); }
 
 .help { display: none; }
 

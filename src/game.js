@@ -206,35 +206,40 @@ function setupMobileControls() {
 }
 setupMobileControls();
 
-function setupP2MobileControls() {
-  const bindAttack = (id, input, field) => {
-    const el = document.getElementById(id);
-    el.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      input[field] = true;
-    });
-    el.addEventListener('contextmenu', (e) => e.preventDefault());
-    el.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
-  };
-  bindAttack('punch-btn-p2', p2Input, 'punch');
-  bindAttack('kick-btn-p2', p2Input, 'kick');
+// ---------------------------------------------------------------------------
+// VS Mode Touch Pads — fixed joystick + tap-above/below for attacks
+// ---------------------------------------------------------------------------
 
-  const zone = document.getElementById('stick-zone-p2');
-  const stick = document.getElementById('stick-p2');
-  const knob = stick.querySelector('.stick-knob');
+function setupVsPad(zoneId, input) {
+  const zone = document.getElementById(zoneId);
+  const stickEl = zone.querySelector('.vs-stick');
+  const knob = zone.querySelector('.vs-knob');
+  const punchLabel = zone.querySelector('.punch-label');
+  const kickLabel = zone.querySelector('.kick-label');
+
   let origin = null;
+  let startTime = 0;
+  let totalMove = 0;
   const DEAD = 18;
-  const MAX = 55;
+  const MAX = 50;
+  const TAP_TIME = 200;  // ms — taps shorter than this trigger attacks
+  const TAP_DIST = 12;   // px — max movement to still count as a tap
 
-  const resetMove = () => { p2Input.left = p2Input.right = p2Input.up = p2Input.down = false; };
+  const resetMove = () => { input.left = input.right = input.up = input.down = false; };
+
+  const flashLabel = (label, cls) => {
+    label.classList.add(cls);
+    setTimeout(() => label.classList.remove(cls), 120);
+  };
+
+  zone.addEventListener('contextmenu', (e) => e.preventDefault());
+  zone.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
 
   zone.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     origin = { x: e.clientX, y: e.clientY };
-    stick.classList.remove('hidden');
-    stick.style.left = `${e.clientX}px`;
-    stick.style.top = `${e.clientY}px`;
-    knob.style.transform = 'translate(-50%,-50%)';
+    startTime = performance.now();
+    totalMove = 0;
     zone.setPointerCapture(e.pointerId);
   });
 
@@ -242,12 +247,15 @@ function setupP2MobileControls() {
     if (!origin) return;
     const dx = e.clientX - origin.x;
     const dy = e.clientY - origin.y;
-    resetMove();
-    if (dx < -DEAD) p2Input.left = true;
-    if (dx > DEAD) p2Input.right = true;
-    if (dy < -DEAD) p2Input.up = true;
-    if (dy > DEAD) p2Input.down = true;
+    totalMove = Math.max(totalMove, Math.sqrt(dx * dx + dy * dy));
 
+    resetMove();
+    if (dx < -DEAD) input.left = true;
+    if (dx > DEAD) input.right = true;
+    if (dy < -DEAD) input.up = true;
+    if (dy > DEAD) input.down = true;
+
+    // Animate knob
     const dist = Math.sqrt(dx * dx + dy * dy);
     const clamp = Math.min(dist, MAX);
     const angle = Math.atan2(dy, dx);
@@ -256,16 +264,33 @@ function setupP2MobileControls() {
     knob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
   });
 
-  const release = () => {
+  const release = (e) => {
+    if (!origin) return;
+    const elapsed = performance.now() - startTime;
+
+    // Quick tap with minimal movement → attack based on position relative to stick center
+    if (elapsed < TAP_TIME && totalMove < TAP_DIST) {
+      const rect = stickEl.getBoundingClientRect();
+      const stickCenterY = rect.top + rect.height / 2;
+      if (origin.y < stickCenterY) {
+        input.punch = true;
+        flashLabel(punchLabel, 'flash-punch');
+      } else {
+        input.kick = true;
+        flashLabel(kickLabel, 'flash-kick');
+      }
+    }
+
     origin = null;
     resetMove();
-    stick.classList.add('hidden');
-    knob.style.transform = 'translate(-50%,-50%)';
+    knob.style.transform = 'translate(-50%, -50%)';
   };
+
   zone.addEventListener('pointerup', release);
   zone.addEventListener('pointercancel', release);
 }
-setupP2MobileControls();
+setupVsPad('vs-pad-p1', world.input);
+setupVsPad('vs-pad-p2', p2Input);
 
 // ---------------------------------------------------------------------------
 // SBB Chat Control Mode
@@ -1025,16 +1050,16 @@ const p2Label = document.getElementById('p2-label');
 function setGameUIVisible(visible) {
   const display = visible ? '' : 'none';
   document.querySelector('.hud').style.display = visible ? 'grid' : 'none';
-  document.querySelector('.p1-buttons').style.display = visible ? 'flex' : 'none';
-  document.getElementById('stick-zone').style.display = display;
   ui.comboP1.style.display = display;
   ui.comboP2.style.display = display;
-  // P2 mobile controls — only shown in VS mode
-  const showP2 = visible && vsMode;
-  document.getElementById('stick-zone-p2').style.display = showP2 ? '' : 'none';
-  document.getElementById('p2-buttons').style.display = showP2 ? 'flex' : 'none';
-  // Toggle VS layout class for split-screen positioning
-  document.body.classList.toggle('vs-mobile', showP2);
+
+  const showVs = visible && vsMode;
+  // In VS mode: hide normal P1 controls, show unified vs-pads for both players
+  // In Play mode: show normal P1 controls, hide vs-pads
+  document.querySelector('.p1-buttons').style.display = (visible && !vsMode) ? 'flex' : 'none';
+  document.getElementById('stick-zone').style.display = (visible && !vsMode) ? '' : 'none';
+  document.getElementById('vs-pad-p1').style.display = showVs ? '' : 'none';
+  document.getElementById('vs-pad-p2').style.display = showVs ? '' : 'none';
 }
 
 function showTitleScreen() {
