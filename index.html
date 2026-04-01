@@ -71,8 +71,17 @@
         <div class="vs-tap-label kick-label">KICK</div>
       </div>
 
-      <!-- Camera orbit compass widget -->
-      <canvas id="camera-compass" class="camera-compass" width="120" height="120"></canvas>
+      <!-- Camera controls: compass + zoom slider -->
+      <div id="camera-controls" class="camera-controls">
+        <canvas id="camera-compass" class="camera-compass" width="120" height="120"></canvas>
+        <div id="zoom-slider" class="zoom-slider" touch-action="none">
+          <div class="zoom-track">
+            <div id="zoom-thumb" class="zoom-thumb"></div>
+          </div>
+          <div class="zoom-label zoom-label-top">&#x2212;</div>
+          <div class="zoom-label zoom-label-bottom">+</div>
+        </div>
+      </div>
 
       <!-- Demo mode UI -->
       <div id="demo-panel" class="demo-panel" style="display:none;">

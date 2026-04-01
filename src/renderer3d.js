@@ -500,6 +500,7 @@ export async function initScene(canvas) {
   // Camera controls: scroll/pinch to zoom, right-drag/two-finger rotate
   setupCameraControls(canvas);
   setupCompass();
+  setupZoomSlider();
 
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setSize(rect.width, rect.height, false);
@@ -1307,13 +1308,16 @@ let compassDragging = false;
 let compassVisible = false;
 let compassAbovePanel = false;
 
+let cameraControlsEl = null;
+
 function applyCompassVisibility() {
-  if (!compassCanvas) return;
-  compassCanvas.style.display = compassVisible ? 'block' : 'none';
-  compassCanvas.classList.toggle('above-panel', compassAbovePanel);
+  if (!cameraControlsEl) return;
+  cameraControlsEl.style.display = compassVisible ? 'flex' : 'none';
+  cameraControlsEl.classList.toggle('above-panel', compassAbovePanel);
 }
 
 function setupCompass() {
+  cameraControlsEl = document.getElementById('camera-controls');
   compassCanvas = document.getElementById('camera-compass');
   if (!compassCanvas) return;
   compassCtx = compassCanvas.getContext('2d');
@@ -1343,6 +1347,47 @@ function setupCompass() {
   const endDrag = () => { compassDragging = false; };
   compassCanvas.addEventListener('pointerup', endDrag);
   compassCanvas.addEventListener('pointercancel', endDrag);
+}
+
+let zoomThumbEl = null;
+
+function setupZoomSlider() {
+  const slider = document.getElementById('zoom-slider');
+  zoomThumbEl = document.getElementById('zoom-thumb');
+  if (!slider || !zoomThumbEl) return;
+
+  let dragging = false;
+
+  const applyZoomFromPointer = (e) => {
+    const rect = slider.getBoundingClientRect();
+    // Top = zoomed in (MIN_ZOOM), bottom = zoomed out (MAX_ZOOM)
+    const t = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    cameraRadius = MIN_ZOOM + t * (MAX_ZOOM - MIN_ZOOM);
+  };
+
+  slider.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    slider.setPointerCapture(e.pointerId);
+    dragging = true;
+    applyZoomFromPointer(e);
+  });
+
+  slider.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    applyZoomFromPointer(e);
+  });
+
+  const endSlider = () => { dragging = false; };
+  slider.addEventListener('pointerup', endSlider);
+  slider.addEventListener('pointercancel', endSlider);
+  slider.addEventListener('contextmenu', (e) => e.preventDefault());
+  slider.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+}
+
+function updateZoomThumb() {
+  if (!zoomThumbEl) return;
+  const t = (cameraRadius - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM);
+  zoomThumbEl.style.top = `${t * 100}%`;
 }
 
 function drawCompass() {
@@ -1455,4 +1500,5 @@ export function render3d() {
 
   renderer.render(scene, camera);
   drawCompass();
+  updateZoomThumb();
 }
