@@ -1026,15 +1026,15 @@ function setGameUIVisible(visible) {
   const display = visible ? '' : 'none';
   document.querySelector('.hud').style.display = visible ? 'grid' : 'none';
   document.querySelector('.p1-buttons').style.display = visible ? 'flex' : 'none';
-  document.querySelector('.stick-zone').style.display = display;
+  document.getElementById('stick-zone').style.display = display;
   ui.comboP1.style.display = display;
   ui.comboP2.style.display = display;
   // P2 mobile controls — only shown in VS mode
-  const vsDisplay = visible && vsMode ? '' : 'none';
-  document.getElementById('stick-zone-p2').style.display = vsDisplay;
-  document.getElementById('p2-buttons').style.display = vsDisplay ? 'flex' : 'none';
+  const showP2 = visible && vsMode;
+  document.getElementById('stick-zone-p2').style.display = showP2 ? '' : 'none';
+  document.getElementById('p2-buttons').style.display = showP2 ? 'flex' : 'none';
   // Toggle VS layout class for split-screen positioning
-  document.body.classList.toggle('vs-mobile', visible && vsMode);
+  document.body.classList.toggle('vs-mobile', showP2);
 }
 
 function showTitleScreen() {

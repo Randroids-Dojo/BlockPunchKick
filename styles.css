@@ -252,7 +252,7 @@ html, body {
 .vs-mobile .stick-zone { width: 30%; }
 .vs-mobile .p1-buttons { right: auto; left: 30%; bottom: 24px; }
 .p2-stick-zone {
-  position: fixed; right: 0; top: 0;
+  position: fixed; left: auto; right: 0; top: 0;
   width: 30%; height: 100%;
   z-index: 100; touch-action: none;
 }
