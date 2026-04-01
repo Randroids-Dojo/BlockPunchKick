@@ -1,4 +1,4 @@
-import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible, setGlobalTimeScale, playDemoPose, stopDemoPose, setDemoPalmRotation, showCompass } from './renderer3d.js';
+import { initScene, updateFighter, triggerScreenShake, render3d, koPhase, updateDynamicCamera, setFighterVisible, setGlobalTimeScale, playDemoPose, stopDemoPose, setDemoPalmRotation, showCompass, resetManualZoom } from './renderer3d.js';
 
 const TICK_RATE = 120;
 const DT = 1 / TICK_RATE;
@@ -96,20 +96,50 @@ const ui = {
   punchBtn: document.getElementById('punch-btn'), kickBtn: document.getElementById('kick-btn'),
 };
 
-const keyMap = {
-  ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right', ArrowUp: 'up', w: 'up', ArrowDown: 'down', s: 'down',
+const p1KeyMap = {
+  a: 'left', d: 'right', w: 'up', s: 'down',
   k: 'punch', l: 'kick',
 };
+const p2KeyMap = {
+  ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down',
+  ';': 'punch', "'": 'kick',
+};
+// In non-VS modes, arrow keys also control P1 for convenience
+const p1ArrowFallback = {
+  ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down',
+};
+const p2Input = { left: false, right: false, up: false, down: false, punch: false, kick: false };
+
+let vsMode = false;
+
 window.addEventListener('keydown', (e) => setInput(e, true));
 window.addEventListener('keyup', (e) => setInput(e, false));
 function setInput(event, val) {
-  const mapped = keyMap[event.key] ?? keyMap[event.key.toLowerCase()];
-  if (!mapped) return;
-  event.preventDefault();
-  if (mapped === 'punch' || mapped === 'kick') {
-    // Only register fresh key presses, not browser auto-repeat.
-    if (val && !event.repeat) world.input[mapped] = true;
-  } else world.input[mapped] = val;
+  const key = event.key;
+  // P1 keys (WASD + K/L)
+  const p1Mapped = p1KeyMap[key] ?? p1KeyMap[key.toLowerCase()];
+  if (p1Mapped) {
+    event.preventDefault();
+    if (p1Mapped === 'punch' || p1Mapped === 'kick') {
+      if (val && !event.repeat) world.input[p1Mapped] = true;
+    } else world.input[p1Mapped] = val;
+    return;
+  }
+  // P2 keys (Arrows + ;/') — only route to P2 in VS mode
+  const p2Mapped = p2KeyMap[key];
+  if (p2Mapped && vsMode) {
+    event.preventDefault();
+    if (p2Mapped === 'punch' || p2Mapped === 'kick') {
+      if (val && !event.repeat) p2Input[p2Mapped] = true;
+    } else p2Input[p2Mapped] = val;
+    return;
+  }
+  // Arrow fallback for P1 when not in VS mode
+  const fallback = p1ArrowFallback[key];
+  if (fallback && !vsMode) {
+    event.preventDefault();
+    world.input[fallback] = val;
+  }
 }
 
 function setupMobileControls() {
@@ -177,6 +207,92 @@ function setupMobileControls() {
 setupMobileControls();
 
 // ---------------------------------------------------------------------------
+// VS Mode Touch Pads — fixed joystick + tap-above/below for attacks
+// ---------------------------------------------------------------------------
+
+function setupVsPad(zoneId, input) {
+  const zone = document.getElementById(zoneId);
+  const stickEl = zone.querySelector('.vs-stick');
+  const knob = zone.querySelector('.vs-knob');
+  const punchLabel = zone.querySelector('.punch-label');
+  const kickLabel = zone.querySelector('.kick-label');
+
+  let origin = null;
+  let startTime = 0;
+  let totalMove = 0;
+  const DEAD = 18;
+  const MAX = 50;
+  const TAP_TIME = 200;  // ms — taps shorter than this trigger attacks
+  const TAP_DIST = 12;   // px — max movement to still count as a tap
+
+  const resetMove = () => { input.left = input.right = input.up = input.down = false; };
+
+  const flashLabel = (label, cls) => {
+    label.classList.add(cls);
+    setTimeout(() => label.classList.remove(cls), 120);
+  };
+
+  zone.addEventListener('contextmenu', (e) => e.preventDefault());
+  zone.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+
+  zone.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    origin = { x: e.clientX, y: e.clientY };
+    startTime = performance.now();
+    totalMove = 0;
+    zone.setPointerCapture(e.pointerId);
+  });
+
+  zone.addEventListener('pointermove', (e) => {
+    if (!origin) return;
+    const dx = e.clientX - origin.x;
+    const dy = e.clientY - origin.y;
+    totalMove = Math.max(totalMove, Math.sqrt(dx * dx + dy * dy));
+
+    resetMove();
+    if (dx < -DEAD) input.left = true;
+    if (dx > DEAD) input.right = true;
+    if (dy < -DEAD) input.up = true;
+    if (dy > DEAD) input.down = true;
+
+    // Animate knob
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const clamp = Math.min(dist, MAX);
+    const angle = Math.atan2(dy, dx);
+    const kx = Math.cos(angle) * clamp;
+    const ky = Math.sin(angle) * clamp;
+    knob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
+  });
+
+  const release = (e) => {
+    if (!origin) return;
+    const elapsed = performance.now() - startTime;
+
+    // Quick tap with minimal movement → attack based on position relative to stick center
+    if (elapsed < TAP_TIME && totalMove < TAP_DIST) {
+      const rect = stickEl.getBoundingClientRect();
+      const stickCenterY = rect.top + rect.height / 2;
+      if (origin.y < stickCenterY) {
+        input.punch = true;
+        flashLabel(punchLabel, 'flash-punch');
+      } else {
+        input.kick = true;
+        flashLabel(kickLabel, 'flash-kick');
+      }
+    }
+
+    origin = null;
+    resetMove();
+    knob.style.transform = 'translate(-50%, -50%)';
+  };
+
+  zone.addEventListener('pointerup', release);
+  zone.addEventListener('pointercancel', release);
+}
+setupVsPad('vs-pad-p1', world.input);
+setupVsPad('vs-pad-p2', p2Input);
+
+// ---------------------------------------------------------------------------
 // SBB Chat Control Mode
 // ---------------------------------------------------------------------------
 
@@ -195,6 +311,7 @@ function resetInputState(input) {
 function resetAllInputs() {
   resetInputState(world.input);
   resetInputState(sbb.input2);
+  resetInputState(p2Input);
 }
 
 function clearTitleReturnTimeout() {
@@ -204,9 +321,10 @@ function clearTitleReturnTimeout() {
   }
 }
 
-/** Mirror of simInputForPlayer() but drives world.cpu from sbb.input2. */
+/** Mirror of simInputForPlayer() but drives world.cpu from P2 input (local or SBB). */
 function simInputForPlayer2() {
   const p = world.cpu, c = world.player;
+  const inp = vsMode ? p2Input : sbb.input2;
   p.attackCooldown = Math.max(0, p.attackCooldown - 1);
 
   // Always face toward opponent
@@ -214,21 +332,21 @@ function simInputForPlayer2() {
   p.facing = dx > 0 ? 1 : -1;
 
   // Single-press attacks (consumed this frame)
-  if (sbb.input2.punch) enqueueAction(p, 'punch');
-  if (sbb.input2.kick)  enqueueAction(p, 'kick');
-  sbb.input2.punch = false;
-  sbb.input2.kick  = false;
+  if (inp.punch) enqueueAction(p, 'punch');
+  if (inp.kick)  enqueueAction(p, 'kick');
+  inp.punch = false;
+  inp.kick  = false;
 
   // SF2-style proximity guard: holding back while opponent threatens = block
   p.blockHeld = false;
-  const holdingBack = (p.facing === 1  && sbb.input2.left  && !sbb.input2.right) ||
-                      (p.facing === -1 && sbb.input2.right && !sbb.input2.left);
+  const holdingBack = (p.facing === 1  && inp.left  && !inp.right) ||
+                      (p.facing === -1 && inp.right && !inp.left);
   const proximityGuard = holdingBack && isProximityThreat(c, p);
   if (proximityGuard) p.blockHeld = true;
 
   if (p.actionable()) {
-    p.axisX = (sbb.input2.right ? 1 : 0) - (sbb.input2.left ? 1 : 0);
-    p.axisY = (sbb.input2.down  ? 1 : 0) - (sbb.input2.up   ? 1 : 0);
+    p.axisX = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
+    p.axisY = (inp.down  ? 1 : 0) - (inp.up   ? 1 : 0);
     if (proximityGuard) p.axisX = 0;
 
     if (p.axisX || p.axisY) {
@@ -703,7 +821,8 @@ function endRound() {
   const p = world.player, c = world.cpu;
   const winner = p.health === c.health ? null : p.health > c.health ? p : c;
   if (winner) winner.roundWins++;
-  ui.announcement.textContent = winner ? `${winner.id === 'player' ? 'Player' : 'CPU'} Wins Round` : 'Round Draw';
+  const p2Name = vsMode ? 'Player 2' : 'CPU';
+  ui.announcement.textContent = winner ? `${winner.id === 'player' ? 'Player 1' : p2Name} Wins Round` : 'Round Draw';
   // Freeze both fighters — KO'd fighters play death animation, winner idles
   [p, c].forEach(f => { setState(f, f.health <= 0 ? State.KO : State.Idle); f.vx = 0; f.vy = 0; f.impulseX = 0; f.impulseY = 0; f.buffer.length = 0; f.attackCooldown = 0; f.hitFlash = 0; });
   roundLockFrames = 180;
@@ -730,7 +849,8 @@ function resetRoundIfNeeded() {
 
   const p = world.player, c = world.cpu;
   if (p.roundWins >= CONFIG.roundWinsNeeded || c.roundWins >= CONFIG.roundWinsNeeded) {
-    ui.announcement.textContent = `${p.roundWins > c.roundWins ? 'Player' : 'CPU'} Wins Match!`;
+    const matchP2Name = vsMode ? 'Player 2' : 'CPU';
+    ui.announcement.textContent = `${p.roundWins > c.roundWins ? 'Player 1' : matchP2Name} Wins Match!`;
     world.paused = true;
     // Return to title screen after a delay
     clearTitleReturnTimeout();
@@ -891,7 +1011,7 @@ function step() {
   });
 
   simInputForPlayer();
-  if (sbb.enabled) simInputForPlayer2(); else simAI();
+  if (vsMode || sbb.enabled) simInputForPlayer2(); else simAI();
   integrateFighterPhysics(world.player);
   integrateFighterPhysics(world.cpu);
   processStates(world.player);
@@ -921,21 +1041,34 @@ let gameMode = 'title'; // 'title' | 'play' | 'demo'
 
 const titleScreen = document.getElementById('title-screen');
 const playBtn = document.getElementById('play-btn');
+const vsBtn = document.getElementById('vs-btn');
 const demoBtn = document.getElementById('demo-btn');
+const p1Label = document.getElementById('p1-label');
+const p2Label = document.getElementById('p2-label');
 
 // Hide HUD and controls on title screen
 function setGameUIVisible(visible) {
   const display = visible ? '' : 'none';
   document.querySelector('.hud').style.display = visible ? 'grid' : 'none';
-  document.querySelector('.action-buttons-fixed').style.display = visible ? 'flex' : 'none';
-  document.querySelector('.stick-zone').style.display = display;
   ui.comboP1.style.display = display;
   ui.comboP2.style.display = display;
+
+  const showVs = visible && vsMode;
+  // In VS mode: hide normal P1 controls, show unified vs-pads for both players
+  // In Play mode: show normal P1 controls, hide vs-pads
+  document.querySelector('.p1-buttons').style.display = (visible && !vsMode) ? 'flex' : 'none';
+  document.getElementById('stick-zone').style.display = (visible && !vsMode) ? '' : 'none';
+  document.getElementById('vs-pad-p1').style.display = showVs ? '' : 'none';
+  document.getElementById('vs-pad-p2').style.display = showVs ? '' : 'none';
 }
 
 function showTitleScreen() {
   clearTitleReturnTimeout();
   resetAllInputs();
+  vsMode = false;
+  resetManualZoom();
+  if (p1Label) p1Label.textContent = 'Player';
+  if (p2Label) p2Label.textContent = 'CPU';
   gameMode = 'title';
   titleScreen.classList.remove('hidden');
   demoPanel.style.display = 'none';
@@ -955,6 +1088,26 @@ function startPlay() {
   clearTitleReturnTimeout();
   resetAllInputs();
   resetDemoUiState();
+  vsMode = false;
+  if (p1Label) p1Label.textContent = 'Player';
+  if (p2Label) p2Label.textContent = 'CPU';
+  gameMode = 'play';
+  titleScreen.classList.add('hidden');
+  demoPanel.style.display = 'none';
+  setGameUIVisible(true);
+  showCompass(true);
+  setFighterVisible('player', true);
+  setFighterVisible('cpu', true);
+  resetMatch();
+}
+
+function startVS() {
+  clearTitleReturnTimeout();
+  resetAllInputs();
+  resetDemoUiState();
+  vsMode = true;
+  if (p1Label) p1Label.textContent = 'Player 1';
+  if (p2Label) p2Label.textContent = 'Player 2';
   gameMode = 'play';
   titleScreen.classList.add('hidden');
   demoPanel.style.display = 'none';
@@ -1191,6 +1344,7 @@ demoRotBtns.forEach(btn => {
 // ─── Button Handlers ────────────────────────────────────────────
 
 playBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); startPlay(); });
+vsBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); startVS(); });
 demoBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); startDemo(); });
 document.getElementById('demo-quit-btn').addEventListener('pointerdown', (e) => { e.preventDefault(); showTitleScreen(); });
 // Also handle keyboard on title screen
@@ -1200,6 +1354,7 @@ window.addEventListener('keydown', (e) => {
       e.preventDefault();
       startPlay();
     }
+    if (e.key === 'v' || e.key === 'V') startVS();
     if (e.key === 'd' || e.key === 'D') startDemo();
   }
   if (gameMode === 'demo') {

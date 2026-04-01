@@ -160,6 +160,9 @@ html, body {
 .title-btn.play {
   background: linear-gradient(135deg, #1e90ff, #3366cc);
 }
+.title-btn.vs {
+  background: linear-gradient(135deg, #e64a19, #bf360c);
+}
 .title-btn.demo {
   background: linear-gradient(135deg, #666, #444);
 }
@@ -231,19 +234,101 @@ html, body {
 .demo-move-btn.move-block { border-color: rgba(79,103,201,0.4); }
 .demo-move-btn.move-stun  { border-color: rgba(200,150,50,0.4); }
 
-/* Camera orbit compass widget */
-.camera-compass {
+/* Camera controls: compass + zoom slider */
+.camera-controls {
   position: fixed;
-  bottom: 24px; left: 16px;
-  width: 80px; height: 80px;
+  bottom: 16px; left: 50%; transform: translateX(-50%);
   z-index: 160;
+  display: none;  /* shown via JS */
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.camera-controls.above-panel { bottom: calc(25vh + 12px); }
+.camera-compass {
+  width: 80px; height: 80px;
   cursor: grab;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
-  display: none;  /* shown via JS */
 }
-.camera-compass.above-panel { bottom: calc(25vh + 12px); }
 .camera-compass:active { cursor: grabbing; }
+
+/* Vertical zoom slider */
+.zoom-slider {
+  position: relative;
+  width: 28px; height: 80px;
+  display: flex; align-items: center; justify-content: center;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: ns-resize;
+}
+.zoom-track {
+  width: 4px; height: 100%;
+  background: rgba(101,129,206,0.3);
+  border-radius: 2px;
+  position: relative;
+}
+.zoom-thumb {
+  position: absolute; left: 50%; transform: translate(-50%, -50%);
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(126,160,255,0.8);
+  border: 2px solid rgba(200,220,255,0.5);
+  pointer-events: none;
+  transition: top 60ms ease-out;
+}
+.zoom-label {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  font-size: 0.6rem; font-weight: 700;
+  color: rgba(200,210,240,0.35);
+  pointer-events: none;
+  line-height: 1;
+}
+.zoom-label-top { top: -12px; }
+.zoom-label-bottom { bottom: -12px; }
+
+/* VS mode touch pads — fixed joystick per edge with tap-above/below for attacks */
+.vs-pad {
+  position: fixed; top: 0;
+  width: 22%; height: 100%;
+  z-index: 100; touch-action: none;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+.vs-pad-left { left: 0; }
+.vs-pad-right { right: 0; }
+.vs-tap-label {
+  font-size: 0.65rem; font-weight: 700;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: rgba(200,210,240,0.25);
+  pointer-events: none;
+  transition: color 0.1s, text-shadow 0.1s;
+}
+.vs-tap-label.flash-punch {
+  color: rgba(100,180,255,0.9);
+  text-shadow: 0 0 10px rgba(100,180,255,0.5);
+}
+.vs-tap-label.flash-kick {
+  color: rgba(255,100,80,0.9);
+  text-shadow: 0 0 10px rgba(255,100,80,0.5);
+}
+.vs-stick {
+  width: 100px; height: 100px; border-radius: 50%;
+  border: 2px solid rgba(101,129,206,0.4);
+  background: rgba(31,47,90,0.35);
+  position: relative;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+.vs-knob {
+  width: 44px; height: 44px; border-radius: 50%;
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%,-50%);
+  transition: transform 60ms ease-out;
+}
+.p1-knob { background: rgba(126,160,255,0.7); }
+.p2-knob { background: rgba(255,140,120,0.7); }
 
 .help { display: none; }
 

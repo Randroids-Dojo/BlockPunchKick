@@ -500,6 +500,7 @@ export async function initScene(canvas) {
   // Camera controls: scroll/pinch to zoom, right-drag/two-finger rotate
   setupCameraControls(canvas);
   setupCompass();
+  setupZoomSlider();
 
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setSize(rect.width, rect.height, false);
@@ -942,73 +943,12 @@ export function updateFighter(fighterId, fighter) {
 }
 
 function setupCameraControls(canvas) {
-  const pointers = new Map();
-  let prevTwoFingerAngle = null;
-  let prevTwoFingerDist = null;
-
-  canvas.addEventListener('pointerdown', (e) => {
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
-  });
-
-  canvas.addEventListener('pointermove', (e) => {
-    if (!pointers.has(e.pointerId)) return;
-    const prev = pointers.get(e.pointerId);
-
-    if (pointers.size === 2) {
-      // Two-finger: pinch to zoom + angle to rotate
-      const pts = [...pointers.values()];
-      const oldDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      const oldAngle = Math.atan2(pts[0].y - pts[1].y, pts[0].x - pts[1].x);
-
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
-      const newPts = [...pointers.values()];
-      const newDist = Math.hypot(newPts[0].x - newPts[1].x, newPts[0].y - newPts[1].y);
-      const newAngle = Math.atan2(newPts[0].y - newPts[1].y, newPts[0].x - newPts[1].x);
-
-      // Zoom from pinch distance change
-      if (prevTwoFingerDist !== null) {
-        const scale = prevTwoFingerDist / newDist;
-        cameraRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraRadius * scale));
-      }
-      prevTwoFingerDist = newDist;
-
-      // Rotate from two-finger angle change
-      if (prevTwoFingerAngle !== null) {
-        let deltaAngle = newAngle - prevTwoFingerAngle;
-        // Normalize to [-PI, PI]
-        if (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
-        if (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
-        cameraOrbitTarget += deltaAngle * 1.5;
-      }
-      prevTwoFingerAngle = newAngle;
-
-    } else if (pointers.size === 1 && prev.button === 2) {
-      // Right-click drag: rotate orbit (desktop)
-      const dx = e.clientX - prev.x;
-      cameraOrbitTarget += dx * 0.008;
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
-    } else {
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
-    }
-  });
-
-  const removePointer = (e) => {
-    pointers.delete(e.pointerId);
-    if (pointers.size < 2) {
-      prevTwoFingerAngle = null;
-      prevTwoFingerDist = null;
-    }
-  };
-  canvas.addEventListener('pointerup', removePointer);
-  canvas.addEventListener('pointercancel', removePointer);
-
-  // Prevent context menu on right-click
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-
   // Scroll wheel zoom for desktop
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     cameraRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraRadius + e.deltaY * 0.02));
+    dynamicZoomTarget = cameraRadius;
+    manualZoom = true;
   }, { passive: false });
 
   // Keyboard orbit: Q/E to rotate camera
@@ -1017,6 +957,8 @@ function setupCameraControls(canvas) {
     if (e.key === 'e' || e.key === 'E') cameraOrbitTarget += 0.3;
   });
 }
+
+export function resetManualZoom() { manualZoom = false; }
 
 export function setFighterVisible(fighterId, visible) {
   const model = fighterModels[fighterId];
@@ -1029,6 +971,8 @@ export function setGlobalTimeScale(scale) { globalTimeScale = scale; }
 export function triggerScreenShake(intensity) {
   shakeDecay = intensity;
 }
+
+let manualZoom = false;  // true when user has overridden zoom via slider or scroll
 
 // Update dynamic camera zoom target based on fighter positions (game coords)
 export function updateDynamicCamera(player, cpu) {
@@ -1043,8 +987,10 @@ export function updateDynamicCamera(player, cpu) {
   const ZOOM_CLOSE = isEmbedded ? 18 : 14;   // dramatic close-up
   const ZOOM_FAR = isEmbedded ? 32 : 26;     // wide shot when far
 
-  const t = Math.max(0, Math.min(1, (dx - CLOSE_DIST) / (FAR_DIST - CLOSE_DIST)));
-  dynamicZoomTarget = ZOOM_CLOSE + t * (ZOOM_FAR - ZOOM_CLOSE);
+  if (!manualZoom) {
+    const t = Math.max(0, Math.min(1, (dx - CLOSE_DIST) / (FAR_DIST - CLOSE_DIST)));
+    dynamicZoomTarget = ZOOM_CLOSE + t * (ZOOM_FAR - ZOOM_CLOSE);
+  }
 
   // Track midpoint between fighters horizontally
   dynamicCameraX = (pWorld.x + cWorld.x) / 2;
@@ -1370,13 +1316,16 @@ let compassDragging = false;
 let compassVisible = false;
 let compassAbovePanel = false;
 
+let cameraControlsEl = null;
+
 function applyCompassVisibility() {
-  if (!compassCanvas) return;
-  compassCanvas.style.display = compassVisible ? 'block' : 'none';
-  compassCanvas.classList.toggle('above-panel', compassAbovePanel);
+  if (!cameraControlsEl) return;
+  cameraControlsEl.style.display = compassVisible ? 'flex' : 'none';
+  cameraControlsEl.classList.toggle('above-panel', compassAbovePanel);
 }
 
 function setupCompass() {
+  cameraControlsEl = document.getElementById('camera-controls');
   compassCanvas = document.getElementById('camera-compass');
   if (!compassCanvas) return;
   compassCtx = compassCanvas.getContext('2d');
@@ -1406,6 +1355,50 @@ function setupCompass() {
   const endDrag = () => { compassDragging = false; };
   compassCanvas.addEventListener('pointerup', endDrag);
   compassCanvas.addEventListener('pointercancel', endDrag);
+}
+
+let zoomThumbEl = null;
+
+function setupZoomSlider() {
+  const slider = document.getElementById('zoom-slider');
+  zoomThumbEl = document.getElementById('zoom-thumb');
+  if (!slider || !zoomThumbEl) return;
+
+  let dragging = false;
+
+  const applyZoomFromPointer = (e) => {
+    const rect = slider.getBoundingClientRect();
+    // Top = zoomed in (MIN_ZOOM), bottom = zoomed out (MAX_ZOOM)
+    const t = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const zoom = MIN_ZOOM + t * (MAX_ZOOM - MIN_ZOOM);
+    cameraRadius = zoom;
+    dynamicZoomTarget = zoom;
+    manualZoom = true;
+  };
+
+  slider.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    slider.setPointerCapture(e.pointerId);
+    dragging = true;
+    applyZoomFromPointer(e);
+  });
+
+  slider.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    applyZoomFromPointer(e);
+  });
+
+  const endSlider = () => { dragging = false; };
+  slider.addEventListener('pointerup', endSlider);
+  slider.addEventListener('pointercancel', endSlider);
+  slider.addEventListener('contextmenu', (e) => e.preventDefault());
+  slider.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+}
+
+function updateZoomThumb() {
+  if (!zoomThumbEl) return;
+  const t = (cameraRadius - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM);
+  zoomThumbEl.style.top = `${t * 100}%`;
 }
 
 function drawCompass() {
@@ -1518,4 +1511,5 @@ export function render3d() {
 
   renderer.render(scene, camera);
   drawCompass();
+  updateZoomThumb();
 }
