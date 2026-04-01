@@ -942,69 +942,6 @@ export function updateFighter(fighterId, fighter) {
 }
 
 function setupCameraControls(canvas) {
-  const pointers = new Map();
-  let prevTwoFingerAngle = null;
-  let prevTwoFingerDist = null;
-
-  canvas.addEventListener('pointerdown', (e) => {
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
-  });
-
-  canvas.addEventListener('pointermove', (e) => {
-    if (!pointers.has(e.pointerId)) return;
-    const prev = pointers.get(e.pointerId);
-
-    if (pointers.size === 2) {
-      // Two-finger: pinch to zoom + angle to rotate
-      const pts = [...pointers.values()];
-      const oldDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      const oldAngle = Math.atan2(pts[0].y - pts[1].y, pts[0].x - pts[1].x);
-
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
-      const newPts = [...pointers.values()];
-      const newDist = Math.hypot(newPts[0].x - newPts[1].x, newPts[0].y - newPts[1].y);
-      const newAngle = Math.atan2(newPts[0].y - newPts[1].y, newPts[0].x - newPts[1].x);
-
-      // Zoom from pinch distance change
-      if (prevTwoFingerDist !== null) {
-        const scale = prevTwoFingerDist / newDist;
-        cameraRadius = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cameraRadius * scale));
-      }
-      prevTwoFingerDist = newDist;
-
-      // Rotate from two-finger angle change
-      if (prevTwoFingerAngle !== null) {
-        let deltaAngle = newAngle - prevTwoFingerAngle;
-        // Normalize to [-PI, PI]
-        if (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
-        if (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
-        cameraOrbitTarget += deltaAngle * 1.5;
-      }
-      prevTwoFingerAngle = newAngle;
-
-    } else if (pointers.size === 1 && prev.button === 2) {
-      // Right-click drag: rotate orbit (desktop)
-      const dx = e.clientX - prev.x;
-      cameraOrbitTarget += dx * 0.008;
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
-    } else {
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
-    }
-  });
-
-  const removePointer = (e) => {
-    pointers.delete(e.pointerId);
-    if (pointers.size < 2) {
-      prevTwoFingerAngle = null;
-      prevTwoFingerDist = null;
-    }
-  };
-  canvas.addEventListener('pointerup', removePointer);
-  canvas.addEventListener('pointercancel', removePointer);
-
-  // Prevent context menu on right-click
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-
   // Scroll wheel zoom for desktop
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();

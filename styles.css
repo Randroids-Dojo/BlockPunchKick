@@ -237,7 +237,7 @@ html, body {
 /* Camera orbit compass widget */
 .camera-compass {
   position: fixed;
-  bottom: 24px; left: 16px;
+  bottom: 24px; left: 50%; transform: translateX(-50%);
   width: 80px; height: 80px;
   z-index: 160;
   cursor: grab;
