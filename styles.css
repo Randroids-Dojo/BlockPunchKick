@@ -248,6 +248,21 @@ html, body {
 .camera-compass.above-panel { bottom: calc(25vh + 12px); }
 .camera-compass:active { cursor: grabbing; }
 
+/* VS mode mobile layout — split screen for two players */
+.vs-mobile .stick-zone { width: 30%; }
+.vs-mobile .p1-buttons { right: auto; left: 30%; bottom: 24px; }
+.p2-stick-zone {
+  position: fixed; right: 0; top: 0;
+  width: 30%; height: 100%;
+  z-index: 100; touch-action: none;
+}
+.p2-buttons {
+  position: fixed; right: 30%; bottom: 24px;
+  display: flex; flex-direction: column; gap: 10px;
+  z-index: 100;
+}
+.p2-knob { background: rgba(255,140,120,0.8); }
+
 .help { display: none; }
 
 /* Embedded in iframe — same layout, just tighten padding */

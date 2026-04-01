@@ -206,6 +206,67 @@ function setupMobileControls() {
 }
 setupMobileControls();
 
+function setupP2MobileControls() {
+  const bindAttack = (id, input, field) => {
+    const el = document.getElementById(id);
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      input[field] = true;
+    });
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    el.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+  };
+  bindAttack('punch-btn-p2', p2Input, 'punch');
+  bindAttack('kick-btn-p2', p2Input, 'kick');
+
+  const zone = document.getElementById('stick-zone-p2');
+  const stick = document.getElementById('stick-p2');
+  const knob = stick.querySelector('.stick-knob');
+  let origin = null;
+  const DEAD = 18;
+  const MAX = 55;
+
+  const resetMove = () => { p2Input.left = p2Input.right = p2Input.up = p2Input.down = false; };
+
+  zone.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    origin = { x: e.clientX, y: e.clientY };
+    stick.classList.remove('hidden');
+    stick.style.left = `${e.clientX}px`;
+    stick.style.top = `${e.clientY}px`;
+    knob.style.transform = 'translate(-50%,-50%)';
+    zone.setPointerCapture(e.pointerId);
+  });
+
+  zone.addEventListener('pointermove', (e) => {
+    if (!origin) return;
+    const dx = e.clientX - origin.x;
+    const dy = e.clientY - origin.y;
+    resetMove();
+    if (dx < -DEAD) p2Input.left = true;
+    if (dx > DEAD) p2Input.right = true;
+    if (dy < -DEAD) p2Input.up = true;
+    if (dy > DEAD) p2Input.down = true;
+
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const clamp = Math.min(dist, MAX);
+    const angle = Math.atan2(dy, dx);
+    const kx = Math.cos(angle) * clamp;
+    const ky = Math.sin(angle) * clamp;
+    knob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
+  });
+
+  const release = () => {
+    origin = null;
+    resetMove();
+    stick.classList.add('hidden');
+    knob.style.transform = 'translate(-50%,-50%)';
+  };
+  zone.addEventListener('pointerup', release);
+  zone.addEventListener('pointercancel', release);
+}
+setupP2MobileControls();
+
 // ---------------------------------------------------------------------------
 // SBB Chat Control Mode
 // ---------------------------------------------------------------------------
@@ -964,10 +1025,16 @@ const p2Label = document.getElementById('p2-label');
 function setGameUIVisible(visible) {
   const display = visible ? '' : 'none';
   document.querySelector('.hud').style.display = visible ? 'grid' : 'none';
-  document.querySelector('.action-buttons-fixed').style.display = visible ? 'flex' : 'none';
+  document.querySelector('.p1-buttons').style.display = visible ? 'flex' : 'none';
   document.querySelector('.stick-zone').style.display = display;
   ui.comboP1.style.display = display;
   ui.comboP2.style.display = display;
+  // P2 mobile controls — only shown in VS mode
+  const vsDisplay = visible && vsMode ? '' : 'none';
+  document.getElementById('stick-zone-p2').style.display = vsDisplay;
+  document.getElementById('p2-buttons').style.display = vsDisplay ? 'flex' : 'none';
+  // Toggle VS layout class for split-screen positioning
+  document.body.classList.toggle('vs-mobile', visible && vsMode);
 }
 
 function showTitleScreen() {
